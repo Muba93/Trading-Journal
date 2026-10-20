@@ -238,17 +238,19 @@ td.num,th.num{text-align:right}
 .seg button{border:0;background:none;padding:8px 12px;font-weight:700;color:var(--muted);font-size:13px}
 .seg button.on{background:var(--btn);color:#fff}
 /* modal */
-.overlay{position:fixed;inset:0;background:rgba(10,16,26,.55);z-index:50;display:flex;align-items:flex-start;justify-content:center;padding:max(20px,env(safe-area-inset-top,0px)) 16px 20px;overflow-y:auto}
-.modal{background:var(--surface);border-radius:16px;width:min(920px,100%);box-shadow:0 20px 60px rgba(0,0,0,.3);display:flex;flex-direction:column}
+.overlay{position:fixed;inset:0;background:rgba(10,16,26,.55);z-index:50;display:flex;align-items:center;justify-content:center;padding:max(20px,env(safe-area-inset-top,0px)) 16px max(20px,env(safe-area-inset-bottom,0px));overflow:hidden;overscroll-behavior:contain}
+.modal{background:var(--surface);border-radius:16px;width:min(920px,100%);max-height:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);display:flex;flex-direction:column;overflow:hidden}
 .modal-h{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 0}
 .modal-h h2{margin:0;font-size:19px}
 .x{border:0;background:var(--surface2);width:36px;height:36px;border-radius:10px;display:grid;place-items:center}
 .x svg{width:18px;height:18px}
-.mtabs{display:flex;gap:4px;padding:14px 20px 0;border-bottom:1px solid var(--line);overflow-x:auto}
+.mtabs{display:flex;gap:4px;padding:14px 20px 0;border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden;scrollbar-width:none;flex-shrink:0}
+.mtabs::-webkit-scrollbar{display:none}
 .mtabs button{border:0;background:none;padding:10px 14px;font-weight:700;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
 .mtabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
-.mbody{padding:20px}
-.mfoot{display:flex;justify-content:space-between;gap:10px;padding:14px 20px;border-top:1px solid var(--line);flex-wrap:wrap}
+.mbody{padding:20px;overflow-y:auto;flex:1 1 auto;min-height:0;overscroll-behavior:contain}
+.mfoot{display:flex;justify-content:space-between;gap:10px;padding:14px 20px;border-top:1px solid var(--line);flex-wrap:wrap;flex-shrink:0;background:var(--surface)}
+.modal-h{flex-shrink:0}
 .fg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
 .f{display:flex;flex-direction:column;gap:5px;min-width:0}
 .f label{font-size:12px;font-weight:700;color:var(--muted)}
@@ -503,6 +505,8 @@ function calc(t,lite){
     r.pnl=num(t.pnlOverride)!=null?num(t.pnlOverride):r.calcPnl;
     r.outcome=Math.abs(r.resultPips)<=S.settings.beTol?'BE':(r.resultPips>0?'Win':'Loss');
     r.tpReached=tp!=null&&(x-tp)*sign>=-Math.max(S.settings.beTol,0.1)*sp.pip;
+    r.slHit=sl!=null&&(x-sl)*sign<=Math.max(S.settings.beTol,0.1)*sp.pip;
+    r.earlyExit=tp!=null&&!r.tpReached&&!r.slHit;
     r.rMult=(r.slAmount&&r.pnl!=null)?r.pnl/r.slAmount:null;
   } else if(r.closed){
     r.pnl=num(t.pnlOverride);r.resultPips=num(t.resPips);r.calcPnl=null;
@@ -716,7 +720,7 @@ function filterBar(opts={}){
   return `<div class="filters">
     ${opts.noRange?'':`<select class="sel" aria-label="Timeframe" onchange="S.filter.range=this.value;render()">${ranges.map(([k,l])=>`<option value="${k}" ${f.range===k?'selected':''}>${l}</option>`).join('')}</select>
     ${f.range==='custom'?`<input type="date" class="inp" aria-label="From" value="${f.from}" onchange="S.filter.from=this.value;render()"><input type="date" class="inp" aria-label="To" value="${f.to}" onchange="S.filter.to=this.value;render()">`:''}`}
-    <select class="sel" aria-label="Platform" onchange="S.filter.platform=this.value;render()"><option value="all">All platforms</option>${S.settings.platforms.map(p=>`<option value="${p.id}" ${f.platform===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select>
+    <select class="sel" aria-label="Platform" onchange="S.filter.platform=this.value;render()"><option value="all">All platforms</option>${acctOptions(f.platform)}</select>
   </div>`;
 }
 function rangeLabel(){return {today:'Today',week:'This week',month:'This month',year:'This year',all:'All time',custom:'Custom range'}[S.filter.range];}
@@ -980,9 +984,22 @@ function fmtDay(d){if(!/^\d{4}/.test(d))return d;const dt=new Date(d+'T00:00:00Z
 
 /* ---------------- trade modal ---------------- */
 let M=null; // {t, tab, dirty}
+function activeAccts(){return S.settings.platforms.filter(p=>!p.archived);}
+function defaultPlatform(){
+  const ok=id=>{const p=S.settings.platforms.find(x=>x.id===id);return p&&!p.archived;};
+  if(S.filter.platform!=='all'&&ok(S.filter.platform))return S.filter.platform;
+  try{const l=localStorage.getItem('tj-lastacct');if(l&&ok(l))return l;}catch(e){}
+  const last=Object.values(S.trades).filter(t=>ok(t.platform)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0];
+  return last?last.platform:(activeAccts()[0]||S.settings.platforms[0])?.id||'';
+}
+function acctOptions(sel,label){
+  const act=S.settings.platforms.filter(p=>!p.archived),arc=S.settings.platforms.filter(p=>p.archived);
+  const o=p=>`<option value="${p.id}" ${sel===p.id?'selected':''}>${esc(p.name)}${label?` (${acctLabel(p)})`:''}</option>`;
+  return act.map(o).join('')+(arc.length?`<optgroup label="Archived">${arc.map(o).join('')}</optgroup>`:'');
+}
 function blankTrade(){
   const n=nowHome();const s=n.getUTCFullYear()+'-'+pad(n.getUTCMonth()+1)+'-'+pad(n.getUTCDate())+'T'+pad(n.getUTCHours())+':'+pad(n.getUTCMinutes());
-  return {id:uid(),pair:S.settings.favorites[0]||'EURUSD',dir:'Long',tz:S.settings.homeTz,platform:S.filter.platform!=='all'?S.filter.platform:(S.settings.platforms[0]?.id||''),
+  return {id:uid(),pair:S.settings.favorites[0]||'EURUSD',dir:'Long',tz:S.settings.homeTz,platform:defaultPlatform(),
     entry:'',lot:'',sl0:'',tp0:'',slF:'',tpF:'',exit:'',fees:'',pnlOverride:'',entryAt:s,exitAt:'',
     analysisTf:'H4',entryTf:'M15',setups:[],imgBefore:null,imgAfter:null,rules:{},emoBefore:[],emoDuring:[],emoAfter:[],reason:'',slReason:'',hitTp:'',mistakes:[],mistakeNote:'',rating:0,createdAt:Date.now()};
 }
@@ -992,7 +1009,7 @@ function openTrade(id){
 }
 async function closeModal(force){
   if(!force&&M&&M.dirty){const ok=await askConfirm('Discard this trade?','You have changes that are not saved. Close without saving?','Discard',true,'Keep editing');if(!ok)return;}
-  M=null;$('#modalRoot').innerHTML='';document.body.style.overflow='';render();
+  M=null;$('#modalRoot').innerHTML='';document.body.style.overflow='';document.documentElement.style.overflow='';render();
 }
 function set(k,v,re=true){M.t[k]=v;M.dirty=true;if(!re)return;
   setTimeout(()=>{if(!M||!$('#mbody'))return;const a=document.activeElement;const id=a&&a.id&&a.closest&&a.closest('#mbody')?a.id:null;
@@ -1000,8 +1017,8 @@ function set(k,v,re=true){M.t[k]=v;M.dirty=true;if(!re)return;
     renderModalBody();
     if(id){const n=document.getElementById(id);if(n){n.focus({preventScroll:true});if(sel)try{n.setSelectionRange(sel[0],sel[1]);}catch(e){}}}},0);}
 function renderModal(){
-  document.body.style.overflow='hidden';
-  $('#modalRoot').innerHTML=`<div class="overlay" onmousedown="if(event.target===this)closeModal()"><div class="modal" role="dialog" aria-modal="true" aria-label="Trade">
+  document.body.style.overflow='hidden';document.documentElement.style.overflow='hidden';
+  $('#modalRoot').innerHTML=`<div class="overlay" onmousedown="window._ovDown=event.target===this" onclick="if(event.target===this&&window._ovDown)closeModal()"><div class="modal" role="dialog" aria-modal="true" aria-label="Trade">
     <div class="modal-h"><h2 id="mtitle"></h2><button class="x" aria-label="Close" onclick="closeModal()">${IC.x}</button></div>
     <div class="mtabs" id="mtabs"></div><div class="mbody" id="mbody"></div>
     <div class="mfoot"><div class="row">${M.isNew?'':`<button class="btn danger" onclick="removeTrade()">Delete trade</button>`}</div>
@@ -1010,18 +1027,18 @@ function renderModal(){
   renderModalBody();
 }
 const TABS=[['info','Trade info'],['analysis','Analysis'],['rules','Rules'],['review','Review']];
-function nextTab(){const i=TABS.findIndex(x=>x[0]===M.tab);M.tab=TABS[(i+1)%TABS.length][0];renderModalBody();$('.overlay').scrollTop=0;}
+function nextTab(){const i=TABS.findIndex(x=>x[0]===M.tab);M.tab=TABS[(i+1)%TABS.length][0];renderModalBody();$('#mbody').scrollTop=0;}
 function renderModalBody(){
   const t=M.t,r=calc(t);
   $('#mtitle').textContent=(M.isNew?'New trade':'Edit trade')+(t.pair?' · '+t.pair:'');
   $('#mtabs').innerHTML=TABS.map(([k,l])=>`<button class="${M.tab===k?'on':''}" onclick="M.tab='${k}';renderModalBody()">${l}</button>`).join('');
   $('#nextBtn').style.display=M.tab==='review'?'none':'';
-  const b=$('#mbody');const scroll=$('.overlay')?.scrollTop;
+  const b=$('#mbody');const scroll=b?.scrollTop;
   b.innerHTML=M.tab==='info'?tabInfo(t,r):M.tab==='analysis'?tabAnalysis(t):M.tab==='rules'?tabRules(t,r):tabReview(t,r);
   if(M.tab==='analysis')bindDrops();
-  if(scroll!=null)$('.overlay').scrollTop=scroll;
+  if(scroll!=null)b.scrollTop=scroll;
 }
-function inp(k,label,type='number',extra=''){return `<div class="f"><label for="f_${k}">${label}</label><input id="f_${k}" class="inp" type="${type}" ${type==='number'?'step="any" inputmode="decimal"':''} value="${esc(M.t[k]??'')}" ${extra} onchange="set('${k}',this.value)"></div>`;}
+function inp(k,label,type='number',extra=''){return `<div class="f"><label for="f_${k}">${label}</label><input id="f_${k}" class="inp" type="${type}" ${type==='number'?'step="any" inputmode="decimal"':''} value="${esc(M.t[k]??'')}" ${extra} ${type==='datetime-local'?`onchange="set('${k}',this.value,false)" onblur="if(M&&M.t['${k}']!==this.dataset.v0){this.dataset.v0=M.t['${k}'];set('${k}',this.value)}" data-v0="${esc(M.t[k]??'')}"`:`onchange="set('${k}',this.value)"`}></div>`;}
 function calcBox(label,val,c=''){return `<div class="f"><label>${label}</label><div class="calc ${c}">${val}</div></div>`;}
 function pairOptions(sel){
   const favs=S.settings.favorites;const all=Object.assign({},GROUPS,S.settings.custom.length?{Custom:S.settings.custom.map(c=>c.sym)}:{});
@@ -1058,7 +1075,7 @@ function tabInfo(t,r){
       <button class="btn sm" type="button" aria-label="${fav?'Remove from':'Add to'} favorites" title="${fav?'Remove from':'Add to'} favorites" onclick="toggleFav('${t.pair}')" style="color:var(--gold);min-height:38px">${fav?IC.star:IC.starO}</button></div></div>
     <div class="f"><label for="f_dir">Direction</label><select id="f_dir" class="sel" onchange="set('dir',this.value)"><option ${t.dir==='Long'?'selected':''}>Long</option><option ${t.dir==='Short'?'selected':''}>Short</option></select></div>
     <div class="f"><label for="f_tz">Timezone of times below</label><select id="f_tz" class="sel" onchange="set('tz',Number(this.value))">${tzs.join('')}</select></div>
-    <div class="f span2"><label for="f_platform">Platform / account</label><div class="row" style="flex-wrap:nowrap"><select id="f_platform" class="sel" style="flex:1" onchange="set('platform',this.value)">${S.settings.platforms.map(p=>`<option value="${p.id}" ${t.platform===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select>
+    <div class="f span2"><label for="f_platform">Platform / account</label><div class="row" style="flex-wrap:nowrap"><select id="f_platform" class="sel" style="flex:1" onchange="set('platform',this.value)">${acctOptions(t.platform)}</select>
       <button class="btn sm" type="button" onclick="managePlatforms()">Manage</button></div></div>
     ${inp('entryAt','Entry date & time','datetime-local')}
     ${inp('exitAt','Exit date & time','datetime-local')}
@@ -1358,7 +1375,7 @@ function tabReview(t,r){
   <div class="sect">Emotions after the trade</div>${chipEditor('emoAfter',S.settings.emotions,t.emoAfter||[],'Add emotion')}
   <div class="sect">Reason for taking the trade</div><textarea class="inp" aria-label="Reason for taking the trade" placeholder="What did your analysis show?" onchange="set('reason',this.value,false)">${esc(t.reason)}</textarea>
   ${(r.slMoved||r.tpMoved)?`<div class="sect">Why did you move your ${r.slMoved&&r.tpMoved?'SL and TP':r.slMoved?'SL':'TP'}?</div><textarea class="inp" aria-label="Why you moved SL or TP" onchange="set('slReason',this.value,false)">${esc(t.slReason)}</textarea>`:''}
-  ${(r.outcome==='Loss'||r.slMoved||r.tpMoved)&&!r.tpReached?`<div class="sect">${r.slMoved||r.tpMoved?`You moved your ${r.slMoved&&r.tpMoved?'SL and TP':r.slMoved?'SL':'TP'}. After the trade closed, did the market go on to hit your original TP${num(t.tp0)!=null?' ('+t.tp0+')':''}?`:'After you were stopped out, did the market go on to hit your original TP?'}</div>
+  ${(r.slMoved||r.tpMoved||r.earlyExit)&&!r.tpReached?`<div class="sect">${r.slMoved||r.tpMoved?`You moved your ${r.slMoved&&r.tpMoved?'SL and TP':r.slMoved?'SL':'TP'}. After the trade closed, did the market go on to hit your original TP${num(t.tp0)!=null?' ('+t.tp0+')':''}?`:`You closed this trade before your TP${num(t.tp0)!=null?' ('+t.tp0+')':''}. Did the market go on to hit it?`}</div>
     <div class="chips">${['Yes','No','Not sure'].map(v=>`<button type="button" class="chip ${t.hitTp===v?'on':''}" onclick="set('hitTp','${v}')">${v}</button>`).join('')}</div>`:''}
   <div class="sect">Mistakes</div>${chipEditor('mistakes',S.settings.mistakes,t.mistakes||[],'Add mistake')}
   <textarea class="inp" style="margin-top:10px" aria-label="Mistake notes" placeholder="Notes on what went wrong (optional)" onchange="set('mistakeNote',this.value,false)">${esc(t.mistakeNote)}</textarea>
@@ -1373,7 +1390,7 @@ async function commitTrade(){
   else{if(num(t.entry)==null)miss.push('entry price');if(num(t.lot)==null)miss.push('lot size');if(num(t.sl0)==null)miss.push('initial SL');}
   if(miss.length){M.tab='info';renderModalBody();toast('Please add: '+miss.join(', '));return;}
   if(t.exit!==''&&!t.exitAt){M.tab='info';renderModalBody();toast('Add the exit date & time for a closed trade');return;}
-  try{await saveTrade(t);toast(M.isNew?'Trade saved':'Trade updated');closeModal(true);}catch(e){}
+  try{await saveTrade(t);try{localStorage.setItem('tj-lastacct',t.platform);}catch(e){}toast(M.isNew?'Trade saved':'Trade updated');closeModal(true);}catch(e){}
 }
 async function removeTrade(){if(!await askConfirm('Delete trade?','This trade will be removed permanently.','Delete',true))return;await deleteTrade(M.t.id);toast('Trade deleted');closeModal(true);}
 
@@ -1817,7 +1834,7 @@ function renderCashDlg(){
   const {c,isNew}=window._ce;const p=S.settings.platforms.find(x=>x.id===c.platform);const types=cashTypesFor(p);const amt=num(c.amount);
   dlgOpen(`<div class="dlg-h"><h2>${isNew?'Add transaction':'Edit transaction'}</h2><button class="x" aria-label="Close" onclick="dlgClose(null)">${IC.x}</button></div>
   <div class="dlg-b"><div class="fg" style="grid-template-columns:1fr 1fr">
-    <div class="f span2"><label for="ce_acct">Account</label><select id="ce_acct" class="sel" onchange="ceSet('platform',this.value,true)">${S.settings.platforms.map(x=>`<option value="${x.id}" ${x.id===c.platform?'selected':''}>${esc(x.name)} (${acctLabel(x)})</option>`).join('')}</select></div>
+    <div class="f span2"><label for="ce_acct">Account</label><select id="ce_acct" class="sel" onchange="ceSet('platform',this.value,true)">${acctOptions(c.platform,true)}</select></div>
     <div class="f span2"><label>Type</label><div class="chips">${types.map(t=>`<button type="button" class="chip ${c.type===t?'on':''}" onclick="ceSet('type','${t}',true)">${CASH[t].label}</button>`).join('')}</div></div>
     <div class="f"><label for="ce_amt">Amount (${esc(S.settings.currency)})</label><input id="ce_amt" class="inp" type="number" step="any" min="0" value="${esc(c.amount)}" onchange="ceSet('amount',this.value,true)"></div>
     <div class="f"><label for="ce_date">Date</label><input id="ce_date" class="inp" type="date" value="${esc(c.date)}" onchange="ceSet('date',this.value)"></div>
