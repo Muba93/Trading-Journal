@@ -1,0 +1,20 @@
+# OPTIONAL - only needed if you deploy or test with the Wrangler command line.
+# If you set bindings in the Cloudflare dashboard instead, you don't need this file.
+# To use it: rename to wrangler.toml and fill in your D1 database_id.
+# Note: when a wrangler.toml exists in your repo, Cloudflare uses it instead of the dashboard bindings.
+
+name = "trade-journal"
+pages_build_output_dir = "./public"
+compatibility_date = "2024-09-23"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "trade-journal-db"
+database_id = "PASTE-YOUR-D1-DATABASE-ID-HERE"
+
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "trade-journal-images"
+
+[vars]
+GOOGLE_CLIENT_ID = ""

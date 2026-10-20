@@ -1,0 +1,14 @@
+{
+  "name": "trade-journal",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Trading journal on Cloudflare: Pages + Functions + D1 + R2, with email/password and Google sign-in.",
+  "scripts": {
+    "dev": "wrangler pages dev public --d1 DB=trade-journal-db --r2 IMAGES=trade-journal-images",
+    "db:local": "wrangler d1 execute trade-journal-db --local --file=db/schema.sql",
+    "db:remote": "wrangler d1 execute trade-journal-db --remote --file=db/schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^3.80.0"
+  }
+}
