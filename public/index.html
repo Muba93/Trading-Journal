@@ -10,6 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="/vendor/chart.umd.min.js"></script>
 <script src="/vendor/xlsx.full.min.js"></script>
+<script src="/vendor/lightweight-charts.js"></script>
 <style>:root{
   --bg:#e8e6f2; --surface:#f8f7fc; --surface2:#efedf7; --ink:#1b1740; --muted:#6a6690; --line:#e5e2f3;
   --profit:#05976a; --profit-soft:#d5f8e8; --profit-fill:#10b981;
@@ -112,6 +113,15 @@ textarea.inp{width:100%;min-height:84px;resize:vertical}
 .bar>i.safe{background:linear-gradient(90deg,#38bdf8,#818cf8)}
 .bar>i.warn{background:linear-gradient(90deg,#fbbf24,#f97316)}
 .propcard{box-shadow:none;background:var(--surface2)}
+.wkstatus{font-size:13px;font-weight:700;color:var(--muted)}.wkstatus.saved{color:var(--profit)}.wkstatus.error{color:var(--loss)}
+.ch-tools{margin-bottom:14px;gap:10px}
+.ch-tools .pairbtn{width:auto;flex:0 0 auto}
+.ch-grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}
+.ch-wrap{position:relative;height:min(68vh,620px);min-height:380px;touch-action:none}
+.ch-box{position:absolute;inset:0}
+#chZones{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.ch-msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px;background:var(--surface);z-index:3;border-radius:10px}
+@media (max-width:1100px){.ch-grid{grid-template-columns:1fr}}
 .auth{position:fixed;inset:0;z-index:100;background:radial-gradient(1200px 600px at 10% 0%,rgba(124,58,237,.35),transparent),radial-gradient(900px 500px at 100% 100%,rgba(14,165,233,.25),transparent),var(--bg);display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
 [hidden]{display:none!important}
 .auth-box{width:min(400px,100%);background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
@@ -381,13 +391,14 @@ const IC={
  ins:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6M11 8v6"/></svg>',
  set:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
  x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>',
+ candle:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 3v4M7 15v6M17 3v6M17 17v4"/><rect x="5" y="7" width="4" height="8" rx="1"/><rect x="15" y="9" width="4" height="8" rx="1"/></svg>',
  money:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7H5a2 2 0 0 1 0-4h13v4"/><path d="M3 5v14a2 2 0 0 0 2 2h15V7"/><path d="M16 14h.01"/></svg>',
  star:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3 6.9 7.5.7-5.7 5 1.7 7.4L12 18.3 5.5 22l1.7-7.4-5.7-5 7.5-.7z"/></svg>',
  starO:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 6.9 7.5.7-5.7 5 1.7 7.4L12 18.3 5.5 22l1.7-7.4-5.7-5 7.5-.7z"/></svg>',
  dl:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>',
  up:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9M7 14l5-5 5 5M5 3h14"/></svg>'
 };
-const NAV=[['dashboard','Dashboard','dash'],['trades','Trades','trades'],['log','Trade log','log'],['money','Money','money'],['settings','Settings','set']];
+const NAV=[['dashboard','Dashboard','dash'],['trades','Trades','trades'],['chart','Chart','candle'],['log','Trade log','log'],['money','Money','money'],['settings','Settings','set']];
 
 /* ---------------- instruments ---------------- */
 const GROUPS={
@@ -706,7 +717,8 @@ function render(){
   $('#mobnav').innerHTML=navHTML(true);
   Object.values(charts).forEach(c=>c.destroy());for(const k in charts)delete charts[k];
   const v=S.view;const m=$('#main');
-  m.innerHTML=v==='dashboard'?viewDashboard():v==='trades'?viewTrades():v==='log'?viewLog():v==='calendar'?viewCalendar():v==='insights'?viewInsights():v==='money'?viewMoney():viewSettings();
+  m.innerHTML=v==='dashboard'?viewDashboard():v==='trades'?viewTrades():v==='log'?viewLog():v==='calendar'?viewCalendar():v==='insights'?viewInsights():v==='money'?viewMoney():v==='chart'?viewChart():viewSettings();
+  if(v==='chart')drawChart();
   if(v==='money')drawMoney();
   if(v==='dashboard')drawDashboard();
   if(v==='insights')drawInsights();
@@ -895,7 +907,21 @@ function addDays(day,n){return ymd(new Date(new Date(day+'T00:00:00Z').getTime()
 let weekPending=false,_wkT=null;
 function saveWeek(wk){
   const w=S.weeks[wk];if(!w)return;w.updatedAt=Date.now();weekPending=true;clearTimeout(_wkT);
-  _wkT=setTimeout(async()=>{try{if(COL)await COL.doc('w_'+wk).set(clean(w));else lsSave();}catch(e){toast('Note not saved: '+(e.message||e.code));}weekPending=false;},300);
+  wkStatus('saving');
+  _wkT=setTimeout(()=>flushWeek(wk),800);
+}
+async function flushWeek(wk){
+  clearTimeout(_wkT);const w=S.weeks[wk];if(!w){weekPending=false;return;}
+  try{if(COL)await COL.doc('w_'+wk).set(clean(w));else lsSave();wkStatus('saved');}
+  catch(e){wkStatus('error');toast('Note not saved: '+(e.message||e.code));}
+  weekPending=false;
+}
+function wkStatus(st){const el=document.getElementById('wkStatus');if(!el)return;
+  const t=new Date().toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
+  el.className='wkstatus '+st;el.textContent=st==='saving'?'Saving…':st==='saved'?'✓ Saved at '+t:st==='error'?'Not saved — press Save notes again':'';}
+function saveWeekNow(){const wk=S.weekSel;const n=weekNote(wk);const g=$('#wk_good'),b=$('#wk_bad');if(g)n.good=g.value;if(b)n.bad=b.value;n.updatedAt=Date.now();weekPending=true;flushWeek(wk);}
+window.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&weekPending&&S.weekSel)flushWeek(S.weekSel);});
+function _unusedOldSaveWeekTail(){
 }
 function weekNote(wk){return S.weeks[wk]=S.weeks[wk]||{week:wk,good:'',bad:'',plan:[],review:{}};}
 function weekSet(k,v){const wk=S.weekSel;weekNote(wk)[k]=v;saveWeek(wk);}
@@ -935,12 +961,13 @@ function weeklySection(){
         :'<div class="note">Rate last week’s goals each week and you’ll see here whether you are actually improving.</div>'}</div>
     </div>
     <div class="grid g3" style="margin-top:16px">
-      <div class="f"><label for="wk_good">What I did well</label><textarea id="wk_good" class="inp" placeholder="e.g. Waited for the 9/15 EMA candle close before entering" onchange="weekSet('good',this.value)">${esc(note.good)}</textarea></div>
-      <div class="f"><label for="wk_bad">What went wrong / mistakes</label><textarea id="wk_bad" class="inp" placeholder="e.g. Moved my SL to break-even too early on Tuesday" onchange="weekSet('bad',this.value)">${esc(note.bad)}</textarea></div>
+      <div class="f"><label for="wk_good">What I did well</label><textarea id="wk_good" class="inp" placeholder="e.g. Waited for the 9/15 EMA candle close before entering" oninput="weekSet('good',this.value)">${esc(note.good)}</textarea></div>
+      <div class="f"><label for="wk_bad">What went wrong / mistakes</label><textarea id="wk_bad" class="inp" placeholder="e.g. Moved my SL to break-even too early on Tuesday" oninput="weekSet('bad',this.value)">${esc(note.bad)}</textarea></div>
       <div class="f"><label for="planIn">Next week I will… <span class="note">(your goals)</span></label>
         ${(note.plan||[]).map(p=>`<div class="planitem"><span>${esc(p.text)}</span>${p.ruleId?'<span class="pill Win">In rules</span>':`<button type="button" class="btn sm" onclick="planToRule('${p.id}')" title="Add to your trading rules checklist">Make it a rule</button>`}<button type="button" class="btn sm danger" aria-label="Remove goal" onclick="rmPlan('${p.id}')">×</button></div>`).join('')}
         <div class="row" style="flex-wrap:nowrap"><input id="planIn" class="inp" style="flex:1;min-width:0" placeholder="e.g. No trades before 9:30 NY open" onkeydown="if(event.key==='Enter'){event.preventDefault();addPlan()}"><button type="button" class="btn sm primary" onclick="addPlan()">Add</button></div></div>
     </div>
+    <div class="row" style="justify-content:flex-end;margin-top:14px;gap:12px"><span id="wkStatus" class="wkstatus">${note.updatedAt?'✓ Saved':''}</span><button type="button" class="btn primary" onclick="saveWeekNow()">Save notes</button></div>
   </div>`;
 }
 function chartOpts(o={}){
@@ -1056,13 +1083,13 @@ function openPairPicker(){
   renderPairList();setTimeout(()=>$('#pq')?.focus(),30);
 }
 function renderPairList(){
-  const q=window._pq||'';const favs=S.settings.favorites;const cur=M?M.t.pair:'';
+  const q=window._pq||'';const favs=S.settings.favorites;const cur=window._pickFor==='chart'?CH.pair:M?M.t.pair:'';
   const row=p=>`<div class="prow ${p===cur?'cur':''}"><button type="button" class="pick" onclick="pickPair('${p}')">${p}</button><button type="button" class="fav ${favs.includes(p)?'on':''}" aria-label="${favs.includes(p)?'Remove '+p+' from':'Add '+p+' to'} favorites" onclick="toggleFav('${p}')">${favs.includes(p)?IC.star:IC.starO}</button></div>`;
   let h='';const fl=favs.filter(p=>p.includes(q));if(fl.length)h+=`<div class="pgroup">★ Favorites</div>`+fl.map(row).join('');
   for(const [g,arr] of Object.entries(allPairs())){const rest=arr.filter(p=>!favs.includes(p)&&p.includes(q));if(rest.length)h+=`<div class="pgroup">${g}</div>`+rest.map(row).join('');}
   $('#plist').innerHTML=h||'<div class="note" style="padding:12px">No pair matches. Add custom instruments in Settings.</div>';
 }
-function pickPair(p){dlgClose(null);if(M){set('pair',p);}}
+function pickPair(p){dlgClose(null);if(window._pickFor==='chart'){window._pickFor=null;chartSetPair(p);return;}if(M){set('pair',p);}}
 function tabInfo(t,r){
   const fav=S.settings.favorites.includes(t.pair);const dec=priceDec(t.pair);
   const tzs=[];for(let z=-12;z<=14;z++)tzs.push(`<option value="${z}" ${Number(t.tz)===z?'selected':''}>UTC${z>=0?'+':''}${z}</option>`);
@@ -1089,6 +1116,7 @@ function tabInfo(t,r){
     ${inp('sl0','Initial SL')}${inp('tp0','Initial TP')}${inp('slF','Final SL (at close)')}${inp('tpF','Final TP (at close)')}
   </div>
   ${(r.slMoved||r.tpMoved)?`<div class="warn" style="margin-top:12px">${r.slMoved?(r.slWidened?'Stop loss was widened (more risk) during the trade. ':'Stop loss was moved during the trade. '):''}${r.tpMoved?'Take profit was moved during the trade. ':''}You'll be asked why on the Review tab.</div>`:''}
+  ${t.pair&&t.entryAt&&!t.noTime&&num(t.entry)!=null?`<div class="row" style="margin-top:14px"><button type="button" class="btn sm" onclick="viewTradeOnChart('${t.id}')">${IC.candle} View this trade on the chart</button></div>`:''}
   <div class="sect">Calculated</div>
   <div class="fg">
     ${calcBox('SL distance (pips)',r.pips!=null?r.pips.toFixed(1):'—')}
@@ -1847,6 +1875,189 @@ async function commitCash(){document.activeElement?.blur?.();const c=window._ce.
   c.amount=String(num(c.amount));await saveCash(c);dlgClose(null);toast(CASH[c.type].label+' saved');render();}
 async function removeCash(){const c=window._ce.c;dlgClose(null);if(!await askConfirm('Delete transaction?','This transaction will be removed.','Delete',true))return;await deleteCash(c.id);toast('Transaction deleted');render();}
 
+/* ---------------- chart tab (Lightweight Charts + position tool) ---------------- */
+const CHART_TF=['M5','M15','H1','H4','D1'];
+const DEFAULT_CHART_SYM={XAUUSD:'XAU/USD',XAGUSD:'XAG/USD',BTCUSD:'BTC/USD',ETHUSD:'ETH/USD',US30:'DJI',NAS100:'NDX',SPX500:'SPX',GER40:'DAX',UK100:'UKX',USOIL:'WTI/USD',UKOIL:'BRENT/USD'};
+function chartSymbol(sym){const o=(S.settings.specs||{})[sym];if(o&&o.chartSym)return o.chartSym;if(DEFAULT_CHART_SYM[sym])return DEFAULT_CHART_SYM[sym];return /^[A-Z]{6}$/.test(sym)?sym.slice(0,3)+'/'+sym.slice(3):sym;}
+const CH={pair:null,tf:'M15',bars:null,err:null,loading:false,pos:null,lot:'',acct:null,view:null,cache:{},chart:null,series:null,lines:{},raf:0};
+function chartTime(utcSec){return utcSec+S.settings.homeTz*3600;}           // show times in your timezone
+function utcFmt(ms){const d=new Date(ms);return d.toISOString().slice(0,19).replace('T',' ');}
+function chartSetPair(p){CH.pair=p;CH.pos=null;CH.view=null;CH.bars=null;render();}
+function chartSetTf(tf){CH.tf=tf;CH.bars=null;render();}
+async function loadCandles(force){
+  const sym=chartSymbol(CH.pair);const end=CH.view?CH.view.end:'';const key=[sym,CH.tf,end].join('|');
+  if(!force&&CH.cache[key]&&(end||Date.now()-CH.cache[key].at<60e3)){CH.bars=CH.cache[key].bars;CH.err=null;return;}
+  CH.loading=true;CH.err=null;
+  try{
+    const r=await fetch(`/api/candles?symbol=${encodeURIComponent(sym)}&tf=${CH.tf}${end?'&end='+encodeURIComponent(end):''}`,{credentials:'same-origin'});
+    const j=await r.json().catch(()=>({}));
+    if(r.status===401){showLogin();return;}
+    if(!r.ok){CH.err={code:j.code||r.status,msg:j.error||'Could not load prices.'};CH.bars=null;}
+    else{CH.bars=j.bars||[];CH.cache[key]={bars:CH.bars,at:Date.now()};if(!CH.bars.length)CH.err={code:'empty',msg:'No price data for this symbol and timeframe.'};}
+  }catch(e){CH.err={code:'net',msg:'Network error while loading prices.'};}
+  finally{CH.loading=false;}
+}
+function viewChart(){
+  if(!CH.pair)CH.pair=S.settings.favorites[0]||'EURUSD';if(!CH.acct)CH.acct=defaultPlatform();
+  const pos=CH.pos;const v=CH.view;const t=v?S.trades[v.id]:null;
+  return `<div class="topbar"><div><h1>Chart</h1><div class="sub">Plan the trade on the chart, drag Entry / SL / TP, then log it in one click. Prices may be delayed — use your broker's chart for live trading.</div></div></div>
+  <div class="row ch-tools">
+    <button class="btn pairbtn" style="min-width:150px" onclick="window._pickFor='chart';openPairPicker()"><span>${esc(CH.pair)}</span><span class="note">▾</span></button>
+    <div class="seg" role="group" aria-label="Timeframe">${CHART_TF.map(tf=>`<button class="${CH.tf===tf?'on':''}" onclick="chartSetTf('${tf}')">${tf}</button>`).join('')}</div>
+    <button class="btn sm" onclick="loadCandles(true).then(render)" title="Reload prices">↻ Refresh</button>
+    <span style="flex:1"></span>
+    ${v?`<button class="btn" onclick="CH.view=null;CH.bars=null;CH.pos=null;render()">← Back to live chart</button>`:`
+    <button class="btn" style="color:var(--profit)" onclick="placePosition('Long')">▲ Long</button>
+    <button class="btn" style="color:var(--loss)" onclick="placePosition('Short')">▼ Short</button>
+    ${pos?`<button class="btn sm" onclick="CH.pos=null;render()">Clear</button>`:''}`}
+  </div>
+  <div class="ch-grid">
+    <div class="card" style="padding:10px;position:relative"><div id="chWrap" class="ch-wrap"><div id="chBox" class="ch-box"></div><div id="chZones"></div>
+      ${CH.loading?'<div class="ch-msg">Loading prices…</div>':CH.err?`<div class="ch-msg">${chartErrHTML()}</div>`:''}</div>
+      <div class="note" style="margin-top:6px">Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener" style="color:var(--accent)">TradingView Lightweight Charts™</a> · data: Twelve Data (${esc(chartSymbol(CH.pair))}, ${CH.tf}) · times in UTC${S.settings.homeTz>=0?'+':''}${S.settings.homeTz}</div></div>
+    <div class="card ch-side">${v&&t?tradeSideHTML(t):positionSideHTML()}</div>
+  </div>`;
+}
+function chartErrHTML(){
+  const e=CH.err;
+  if(e.code==='no_key')return `<b>Chart data isn't set up yet</b><div class="note" style="margin-top:8px;max-width:420px">1. Create a free account at twelvedata.com and copy your API key.<br>2. Cloudflare → your Pages project → Settings → Variables and Secrets → add <b>TWELVEDATA_API_KEY</b> (type: Secret).<br>3. Retry the latest deployment, then refresh this page.</div>`;
+  if(e.code==='rate_limited')return `<b>Data limit reached</b><div class="note" style="margin-top:6px">The free plan allows a limited number of requests per minute. Wait a minute and press Refresh.</div>`;
+  return `<b>${esc(e.msg)}</b><div class="note" style="margin-top:6px">If this pair keeps failing, set its “Chart data symbol” in Settings → Instrument settings (e.g. XAU/USD). Some symbols, like indices, may need a paid data plan.</div>`;
+}
+function posCalc(){
+  const p=CH.pos;if(!p)return null;const sp=spec(CH.pair);const lot=num(CH.lot);
+  const slP=Math.abs(p.entry-p.sl)/sp.pip,tpP=Math.abs(p.tp-p.entry)/sp.pip;
+  const risk=lot!=null?Math.abs(p.entry-p.sl)*sp.contract*lot*toUSD(sp.quote,sp.base,p.entry):null;
+  const reward=lot!=null?Math.abs(p.tp-p.entry)*sp.contract*lot*toUSD(sp.quote,sp.base,p.tp):null;
+  const bal=balanceAt(CH.acct,Date.now());
+  return {slP,tpP,rr:slP?tpP/slP:null,risk,reward,riskPct:risk!=null&&bal>0?risk/bal*100:null,bal};
+}
+function positionSideHTML(){
+  const p=CH.pos;
+  if(!p)return `<h2>Position tool</h2><div class="note" style="line-height:1.6">1. Choose the pair and timeframe.<br>2. Press <b style="color:var(--profit)">▲ Long</b> or <b style="color:var(--loss)">▼ Short</b>.<br>3. Drag the <b>Entry</b>, <b>SL</b> and <b>TP</b> lines on the chart (dragging Entry moves the whole position), or type the prices here.<br>4. Enter your lot size and press <b>Log this trade</b>.</div>`;
+  const c=posCalc();const dec=priceDec(CH.pair);const f=v=>Number(v).toFixed(dec);const mr=S.settings.maxRisk;
+  return `<div class="row" style="justify-content:space-between"><h2 style="margin:0">${p.dir==='Long'?'<span class="pos">▲ Long</span>':'<span class="neg">▼ Short</span>'} ${esc(CH.pair)}</h2></div>
+  <div class="fg" style="grid-template-columns:1fr 1fr;margin-top:12px">
+    <div class="f span2"><label for="cp_entry">Entry</label><input id="cp_entry" class="inp" type="number" step="any" value="${f(p.entry)}" onchange="posSet('entry',this.value)"></div>
+    <div class="f"><label for="cp_sl" style="color:var(--loss)">Stop loss</label><input id="cp_sl" class="inp" type="number" step="any" value="${f(p.sl)}" onchange="posSet('sl',this.value)"></div>
+    <div class="f"><label for="cp_tp" style="color:var(--profit)">Take profit</label><input id="cp_tp" class="inp" type="number" step="any" value="${f(p.tp)}" onchange="posSet('tp',this.value)"></div>
+    <div class="f"><label for="cp_lot">Lot size</label><input id="cp_lot" class="inp" type="number" step="any" value="${esc(CH.lot)}" placeholder="e.g. 0.10" onchange="CH.lot=this.value;refreshSide()"></div>
+    <div class="f"><label for="cp_acct">Account</label><select id="cp_acct" class="sel" onchange="CH.acct=this.value;refreshSide()">${acctOptions(CH.acct)}</select></div>
+  </div>
+  <div class="kv" style="margin-top:12px">
+    <div><span>SL distance</span><b>${c.slP.toFixed(1)} pips</b></div>
+    <div><span>TP distance</span><b>${c.tpP.toFixed(1)} pips</b></div>
+    <div><span>Reward : risk</span><b>${c.rr!=null?'1 : '+c.rr.toFixed(2):'—'}</b></div>
+    <div><span>Risk</span><b class="neg">${c.risk!=null?money(c.risk,false):'enter lot size'}</b></div>
+    <div><span>Risk % of account</span><b style="color:${c.riskPct==null?'var(--muted)':c.riskPct>mr+1e-9?'var(--loss)':c.riskPct>mr*.9?'var(--gold)':'var(--profit)'}">${c.riskPct!=null?c.riskPct.toFixed(2)+'%':c.bal?'—':'no balance set'}</b></div>
+    <div><span>Potential profit</span><b class="pos">${c.reward!=null?money(c.reward,false):'—'}</b></div>
+    <div><span>Session now</span><b>${esc(sessionOf(Date.now()))}</b></div>
+  </div>
+  <button class="btn primary" style="width:100%;justify-content:center;margin-top:14px" onclick="logFromChart()">Log this trade</button>
+  <div class="note" style="margin-top:8px">Opens the trade form with pair, direction, entry, SL, TP, lot and account filled in. Add the rest when you close the trade.</div>`;
+}
+function tradeSideHTML(t){
+  const r=calc(t);const dec=priceDec(t.pair);const f=v=>num(v)!=null?Number(v).toFixed(dec):'—';
+  return `<h2 style="margin:0 0 4px">${t.dir==='Long'?'<span class="pos">▲ Long</span>':'<span class="neg">▼ Short</span>'} ${esc(t.pair)}</h2>
+  <div class="note">${esc(r.platformName)} · ${esc((t.entryAt||'').replace('T',' '))}${t.exitAt?' → '+esc(t.exitAt.replace('T',' ')):''}</div>
+  <div class="kv" style="margin-top:10px">
+    <div><span>Entry</span><b>${f(t.entry)}</b></div><div><span>Initial SL / TP</span><b><span class="neg">${f(t.sl0)}</span> / <span class="pos">${f(t.tp0)}</span></b></div>
+    ${r.slMoved||r.tpMoved?`<div><span>Final SL / TP</span><b>${f(t.slF)} / ${f(t.tpF)}</b></div>`:''}
+    <div><span>Exit</span><b>${f(t.exit)}</b></div><div><span>Result</span><b class="${cls(r.pnl)}">${r.closed?money(r.pnl):'Open'}${r.rMult!=null?' · '+r.rMult.toFixed(2)+'R':''}</b></div>
+    <div><span>Outcome</span><b><span class="pill ${r.outcome}">${r.outcome}</span></b></div>
+  </div>
+  <button class="btn" style="width:100%;justify-content:center;margin-top:14px" onclick="openTrade('${t.id}')">Open trade details</button>`;
+}
+function refreshSide(){const el=document.querySelector('.ch-side');if(el&&!CH.view)el.innerHTML=positionSideHTML();}
+function snapP(v){const step=spec(CH.pair).pip/10;return Math.round(v/step)*step;}
+function placePosition(dir){
+  if(!CH.bars||!CH.bars.length){toast('Load the chart first');return;}
+  const b=CH.bars,last=b[b.length-1];const n=Math.min(14,b.length);
+  const atr=b.slice(-n).reduce((s,x)=>s+(x.h-x.l),0)/n||last.c*0.002;const d=atr*1.5,sg=dir==='Long'?1:-1;
+  CH.pos={dir,entry:snapP(last.c),sl:snapP(last.c-sg*d),tp:snapP(last.c+sg*2*d),t0:last.t};render();
+}
+function posSet(k,v){const n=num(v);if(n==null)return;const p=CH.pos;
+  if(k==='entry'){const dE=n-p.entry;p.sl+=dE;p.tp+=dE;}p[k]=n;fixPos();updateLines();refreshSide();}
+function fixPos(){const p=CH.pos,sg=p.dir==='Long'?1:-1,m=spec(CH.pair).pip/10;
+  if((p.entry-p.sl)*sg<m)p.sl=p.entry-sg*m;if((p.tp-p.entry)*sg<m)p.tp=p.entry+sg*m;}
+function logFromChart(){
+  const p=CH.pos;if(!p)return;if(num(CH.lot)==null&&!confirm2('lot'))return;
+  const t=blankTrade();const dec=priceDec(CH.pair);const f=v=>String(+Number(v).toFixed(dec));
+  Object.assign(t,{pair:CH.pair,dir:p.dir,entry:f(p.entry),sl0:f(p.sl),tp0:f(p.tp),lot:CH.lot||'',platform:CH.acct||t.platform,entryTf:CH.tf});
+  M={t,tab:'info',dirty:true,isNew:true};renderModal();
+}
+function confirm2(){toast('Tip: enter your lot size to see risk and risk %');return true;}
+async function viewTradeOnChart(id){
+  const t=S.trades[id]||(M&&M.t);if(!t)return;
+  if(M&&M.dirty&&!await askConfirm('Leave this trade?','You have unsaved changes. Leave without saving?','Leave',true,'Stay'))return;
+  const tz=num(t.tz)??S.settings.homeTz;const o=parseLocal(t.entryAt,tz),x=parseLocal(t.exitAt,tz)??o;const dur=(x-o)/60000;
+  CH.tf=dur<=180?'M5':dur<=720?'M15':dur<=4320?'H1':'H4';
+  const tfMin={M5:5,M15:15,H1:60,H4:240}[CH.tf];
+  CH.pair=t.pair;CH.pos=null;CH.bars=null;CH.view={id:t.id,end:utcFmt(Math.min(Date.now(),x+tfMin*60000*60))};
+  if(M){M=null;$('#modalRoot').innerHTML='';document.body.style.overflow='';document.documentElement.style.overflow='';}
+  S.view='chart';render();window.scrollTo(0,0);
+}
+async function drawChart(){
+  const box=$('#chBox');if(!box||!window.LightweightCharts)return;
+  if(!CH.bars&&!CH.err&&!CH.loading){await loadCandles();if(S.view==='chart')render();return;}
+  if(!CH.bars||!CH.bars.length)return;
+  const css=getComputedStyle(document.documentElement);const mut=css.getPropertyValue('--muted').trim(),line=css.getPropertyValue('--line').trim();
+  const chart=LightweightCharts.createChart(box,{autoSize:true,layout:{background:{type:'solid',color:'transparent'},textColor:mut,attributionLogo:true,fontFamily:'Manrope, system-ui, sans-serif'},
+    grid:{vertLines:{color:line},horzLines:{color:line}},rightPriceScale:{borderColor:line},timeScale:{borderColor:line,timeVisible:CH.tf!=='D1',secondsVisible:false,rightOffset:CH.pos?25:8},
+    crosshair:{mode:LightweightCharts.CrosshairMode.Normal},localization:{locale:((navigator.language||'en-US').split('@')[0])||'en-US'}});
+  const dec=priceDec(CH.pair);
+  const series=chart.addCandlestickSeries({upColor:'#10b981',downColor:'#fb7185',borderVisible:false,wickUpColor:'#10b981',wickDownColor:'#fb7185',priceFormat:{type:'price',precision:dec,minMove:Math.pow(10,-dec)}});
+  series.setData(CH.bars.map(b=>({time:chartTime(b.t),open:b.o,high:b.h,low:b.l,close:b.c})));
+  CH.chart=chart;CH.series=series;CH.lines={};
+  charts.lw={destroy(){cancelAnimationFrame(CH.raf);try{chart.remove();}catch(e){}CH.chart=null;CH.series=null;}};
+  if(CH.view)drawTradeOnChart();else if(CH.pos){updateLines();}
+  bindDrag(box);
+  const loop=()=>{updateZones();CH.raf=requestAnimationFrame(loop);};loop();
+}
+function updateLines(){
+  const s=CH.series,p=CH.pos;if(!s)return;
+  if(!p){for(const k in CH.lines){s.removePriceLine(CH.lines[k]);}CH.lines={};return;}
+  const def={entry:['Entry','#60a5fa'],sl:['SL','#fb7185'],tp:['TP','#10b981']};
+  for(const k of ['entry','sl','tp']){const o={price:p[k],color:def[k][1],lineWidth:2,lineStyle:0,axisLabelVisible:true,title:def[k][0]};
+    if(CH.lines[k])CH.lines[k].applyOptions(o);else CH.lines[k]=s.createPriceLine(o);}
+}
+function updateZones(){
+  const z=$('#chZones');if(!z)return;const p=CH.pos,s=CH.series,c=CH.chart;
+  if(!p||!s||!c||CH.view){z.innerHTML='';return;}
+  const yE=s.priceToCoordinate(p.entry),yS=s.priceToCoordinate(p.sl),yT=s.priceToCoordinate(p.tp);if(yE==null||yS==null||yT==null)return;
+  const w=c.timeScale().width();let x0=c.timeScale().timeToCoordinate(chartTime(p.t0));if(x0==null)x0=w*0.6;x0=Math.max(0,Math.min(w-40,x0));
+  const box=(a,b,col)=>`<div style="position:absolute;left:${x0}px;width:${w-x0}px;top:${Math.min(a,b)}px;height:${Math.abs(b-a)}px;background:${col};pointer-events:none"></div>`;
+  z.innerHTML=box(yE,yT,'rgba(16,185,129,.16)')+box(yE,yS,'rgba(251,113,133,.16)');
+}
+function drawTradeOnChart(){
+  const t=S.trades[CH.view.id];const s=CH.series;if(!t||!s)return;const tz=num(t.tz)??S.settings.homeTz;
+  const add=(v,title,color,style=0)=>{if(num(v)!=null)s.createPriceLine({price:num(v),color,lineWidth:2,lineStyle:style,axisLabelVisible:true,title});};
+  add(t.entry,'Entry','#60a5fa');add(t.sl0,'SL','#fb7185');add(t.tp0,'TP','#10b981');
+  const r=calc(t);if(r.slMoved)add(t.slF,'Final SL','#fb7185',2);if(r.tpMoved)add(t.tpF,'Final TP','#10b981',2);
+  add(t.exit,'Exit','#f59e0b',1);
+  const snap=sec=>{let best=null;for(const b of CH.bars){if(b.t<=sec)best=b.t;else break;}return best;};
+  const mk=[];const o=parseLocal(t.entryAt,tz),x=parseLocal(t.exitAt,tz);const long=t.dir!=='Short';
+  const to=o!=null?snap(o/1000):null,tx=x!=null?snap(x/1000):null;
+  if(to!=null)mk.push({time:chartTime(to),position:long?'belowBar':'aboveBar',color:long?'#10b981':'#fb7185',shape:long?'arrowUp':'arrowDown',text:'Entry'});
+  if(tx!=null)mk.push({time:chartTime(tx),position:long?'aboveBar':'belowBar',color:'#f59e0b',shape:'circle',text:'Exit'});
+  mk.sort((a,b)=>a.time-b.time);s.setMarkers(mk);
+  if(to!=null){const ts=CH.chart.timeScale();const i=CH.bars.findIndex(b=>b.t===to);if(i>=0)ts.setVisibleLogicalRange({from:Math.max(0,i-60),to:Math.min(CH.bars.length+5,i+60)});}
+}
+function bindDrag(box){
+  let drag=null;
+  const near=y=>{if(!CH.pos||CH.view)return null;let best=null,bd=9;for(const k of ['tp','sl','entry']){const c=CH.series.priceToCoordinate(CH.pos[k]);if(c!=null&&Math.abs(c-y)<bd){bd=Math.abs(c-y);best=k;}}return best;};
+  const yOf=e=>e.clientY-box.getBoundingClientRect().top;
+  box.addEventListener('pointerdown',e=>{const k=near(yOf(e));if(!k)return;drag={k,startY:yOf(e),p0:{...CH.pos}};box.setPointerCapture(e.pointerId);CH.chart.applyOptions({handleScroll:false,handleScale:false});e.preventDefault();},true);
+  box.addEventListener('pointermove',e=>{
+    const y=yOf(e);if(!drag){box.style.cursor=near(y)?'ns-resize':'';return;}
+    const pr=CH.series.coordinateToPrice(y);if(pr==null)return;const p=CH.pos;
+    if(drag.k==='entry'){const d=snapP(pr)-drag.p0.entry;p.entry=snapP(drag.p0.entry+d);p.sl=snapP(drag.p0.sl+d);p.tp=snapP(drag.p0.tp+d);}
+    else p[drag.k]=snapP(pr);
+    fixPos();updateLines();refreshSide();},true);
+  const end=e=>{if(!drag)return;drag=null;try{box.releasePointerCapture(e.pointerId);}catch(_){}CH.chart&&CH.chart.applyOptions({handleScroll:true,handleScale:true});};
+  box.addEventListener('pointerup',end,true);box.addEventListener('pointercancel',end,true);
+}
+
 /* ---------------- settings ---------------- */
 function viewSettings(){
   const s=S.settings;
@@ -1877,6 +2088,7 @@ function viewSettings(){
     ${(()=>{const sym=window._specSym||'XAUUSD';const sp=spec(sym);return `<div class="fg" style="margin-top:10px;grid-template-columns:repeat(3,1fr)">
       <div class="f"><label>Pip size</label><input class="inp" type="number" step="any" value="${sp.pip}" onchange="setSpec('${sym}','pip',this.value)"></div>
       <div class="f"><label>Contract per lot</label><input class="inp" type="number" step="any" value="${sp.contract}" onchange="setSpec('${sym}','contract',this.value)"></div>
+      <div class="f span2"><label>Chart data symbol</label><input class="inp" value="${esc(chartSymbol(sym))}" onchange="setSpec('${sym}','chartSym',this.value.trim())"><div class="note">Symbol used by the price data provider (Twelve Data), e.g. EUR/USD, XAU/USD.</div></div>
       <div class="f"><label>Quote currency</label><select class="sel" onchange="setSpec('${sym}','quote',this.value)">${['USD','EUR','GBP','JPY','CHF','CAD','AUD','NZD'].map(q=>`<option ${sp.quote===q?'selected':''}>${q}</option>`).join('')}</select></div></div>`;})()}
     <button class="btn sm" style="margin-top:10px" onclick="addCustom()">+ Add custom instrument</button></div>
   <div class="card"><h2>Appearance &amp; data</h2><div class="row"><label class="note" for="thm">Theme</label><select id="thm" class="sel" onchange="setTheme(this.value)"><option value="auto" ${theme==='auto'?'selected':''}>Match device</option><option value="light" ${theme==='light'?'selected':''}>Light</option><option value="dark" ${theme==='dark'?'selected':''}>Dark</option></select></div>
@@ -1887,7 +2099,7 @@ function viewSettings(){
   </div>`;
 }
 document.addEventListener('change',e=>{if(e.target.id==='specSym'){window._specSym=e.target.value;render();}});
-function setSpec(sym,k,v){S.settings.specs[sym]=S.settings.specs[sym]||{};S.settings.specs[sym][k]=k==='quote'?v:num(v);saveSettings();toast(sym+' updated');}
+function setSpec(sym,k,v){S.settings.specs[sym]=S.settings.specs[sym]||{};S.settings.specs[sym][k]=k==='quote'||k==='chartSym'?v:num(v);saveSettings();toast(sym+' updated');}
 async function addCustom(){const sym=((await askText('Add custom instrument','Symbol',{placeholder:'e.g. JP225, SOLUSD'}))||'').toUpperCase().replace(/[^A-Z0-9]/g,'');if(!sym)return;if(!S.settings.custom.find(c=>c.sym===sym))S.settings.custom.push({sym});window._specSym=sym;saveSettings();render();toast('Now set its pip size and contract size');}
 async function rmPlatform(i){const p=S.settings.platforms[i];const used=Object.values(S.trades).filter(t=>t.platform===p.id).length;
   const inDlg=!!$('#acctBody');
