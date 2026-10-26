@@ -384,8 +384,10 @@ td.num,th.num{text-align:right}
     <p class="sub" id="authSub" style="margin:4px 0 18px">Log in to your trading journal.</p>
     <form id="authForm" onsubmit="event.preventDefault();doAuth()" novalidate>
       <div class="f" id="nameRow" hidden style="margin-bottom:12px"><label for="aName">Name</label><input id="aName" class="inp" autocomplete="name"></div>
-      <div class="f" style="margin-bottom:12px"><label for="aEmail">Email</label><input id="aEmail" class="inp" type="email" autocomplete="email" required></div>
-      <div class="f" style="margin-bottom:14px"><label for="aPass">Password</label><input id="aPass" class="inp" type="password" autocomplete="current-password" minlength="8" required></div>
+      <div class="f" id="emailRow" style="margin-bottom:12px"><label for="aEmail">Email</label><input id="aEmail" class="inp" type="email" autocomplete="email" required></div>
+      <div class="f" id="passRow" style="margin-bottom:14px"><label for="aPass" id="aPassLabel">Password</label><input id="aPass" class="inp" type="password" autocomplete="current-password" minlength="8" required></div>
+      <div class="f" id="pass2Row" hidden style="margin-bottom:14px"><label for="aPass2">Confirm new password</label><input id="aPass2" class="inp" type="password" autocomplete="new-password" minlength="8"></div>
+      <div id="forgotRow" style="text-align:right;margin:-8px 0 12px"><button type="button" class="linkbtn" style="font-size:13px" onclick="setAuthMode('forgot')">Forgot password?</button></div>
       <div id="authErr" class="alert loss" hidden></div>
       <button class="btn primary" type="submit" id="authBtn" style="width:100%;justify-content:center">Log in</button>
     </form>
@@ -680,6 +682,8 @@ const API_COL={doc:id=>({
 async function initStorage(){
   DL={save:async({filename,data})=>{const b=data instanceof Blob?data:new Blob([data]);const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);return {};}};
   ASSETS={upload:async blob=>{const f=new FormData();f.append('image',blob,'chart.jpg');return api('/api/upload',{method:'POST',body:f});}};
+  const rm=location.hash.match(/^#reset=([a-f0-9]{64})$/);
+  if(rm){resetToken=rm[1];history.replaceState(null,'',location.pathname);authMode='reset';showLogin();return;}
   let me=null;try{me=await api('/api/auth/me',{authCall:true});}catch(e){}
   if(!me||!me.user){showLogin();return;}
   await loadAll(me.user);
@@ -691,16 +695,35 @@ async function loadAll(user){
   COL=API_COL;S.mode='cloud';chatLoadLocal();$('#auth').hidden=true;S.ready=true;S._ver++;render();loadNews(true);
 }
 /* ---------- login screen ---------- */
-let authMode='login',gReady=false;
-function showLogin(){$('#auth').hidden=false;setAuthMode(authMode);initGoogle();setTimeout(()=>$('#aEmail')?.focus(),50);}
-function setAuthMode(m){authMode=m;const reg=m==='register';
-  $('#authTitle').textContent=reg?'Create your account':'Welcome back';$('#authSub').textContent=reg?'Start your trading journal — it only takes a minute.':'Log in to your trading journal.';
-  $('#nameRow').hidden=!reg;$('#authBtn').textContent=reg?'Create account':'Log in';$('#aPass').autocomplete=reg?'new-password':'current-password';
-  $('#authSwitchTxt').textContent=reg?'Already have an account?':'New here?';$('#authSwitch').textContent=reg?'Log in':'Create an account';$('#authErr').hidden=true;}
-function toggleAuth(){setAuthMode(authMode==='login'?'register':'login');}
-function authError(m){const e=$('#authErr');e.textContent=m;e.hidden=false;}
+let authMode='login',gReady=false,resetToken=null;
+window.addEventListener('hashchange',()=>{const m=location.hash.match(/^#reset=([a-f0-9]{64})$/);if(m){resetToken=m[1];history.replaceState(null,'',location.pathname);authMode='reset';showLogin();}});
+function showLogin(){$('#auth').hidden=false;setAuthMode(authMode);initGoogle();setTimeout(()=>(authMode==='reset'?$('#aPass'):$('#aEmail'))?.focus(),50);}
+const AUTH_TEXT={
+  login:['Welcome back','Log in to your trading journal.','Log in','New here?','Create an account'],
+  register:['Create your account','Start your trading journal — it only takes a minute.','Create account','Already have an account?','Log in'],
+  forgot:['Forgot your password?','Enter your email and we\u2019ll send you a link to set a new password.','Send reset link','Remembered it?','Log in'],
+  reset:['Set a new password','Choose a new password for your account (at least 8 characters).','Save new password','Changed your mind?','Log in']};
+function setAuthMode(m){authMode=m;const T=AUTH_TEXT[m];
+  $('#authTitle').textContent=T[0];$('#authSub').textContent=T[1];$('#authBtn').textContent=T[2];$('#authSwitchTxt').textContent=T[3];$('#authSwitch').textContent=T[4];
+  $('#nameRow').hidden=m!=='register';$('#emailRow').hidden=m==='reset';$('#passRow').hidden=m==='forgot';$('#pass2Row').hidden=m!=='reset';$('#forgotRow').hidden=m!=='login';
+  $('#aPassLabel').textContent=m==='reset'?'New password':'Password';$('#aPass').autocomplete=m==='login'?'current-password':'new-password';
+  $('#gWrap').style.display=(m==='login'||m==='register')?'':'none';$('#authErr').hidden=true;}
+function toggleAuth(){if(authMode==='reset'){resetToken=null;}setAuthMode(authMode==='login'?'register':'login');}
+function authError(m,ok){const e=$('#authErr');e.textContent=m;e.className='alert '+(ok?'info':'loss');e.hidden=false;}
 async function doAuth(){
   const email=$('#aEmail').value.trim(),password=$('#aPass').value,name=$('#aName').value.trim();
+  if(authMode==='forgot'||authMode==='reset'){
+    const btn=$('#authBtn');const t=btn.textContent;
+    if(authMode==='forgot'){if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return authError('Please enter a valid email address.');}
+    else{if(password.length<8)return authError('Password must be at least 8 characters.');if(password!==$('#aPass2').value)return authError('The two passwords don\u2019t match.');}
+    btn.disabled=true;btn.textContent='Please wait…';
+    try{
+      if(authMode==='forgot'){const j=await api('/api/auth/forgot',{method:'POST',authCall:true,body:JSON.stringify({email})});authError(j.message||'Check your inbox for the reset link.',true);}
+      else{const j=await api('/api/auth/reset',{method:'POST',authCall:true,body:JSON.stringify({token:resetToken,password})});resetToken=null;$('#aPass').value='';$('#aPass2').value='';toast('Password changed — you are logged in');await loadAll(j.user);}
+    }catch(e){authError(e.message);}
+    finally{btn.disabled=false;btn.textContent=t;}
+    return;
+  }
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return authError('Please enter a valid email address.');
   if(password.length<8)return authError('Password must be at least 8 characters.');
   const btn=$('#authBtn');btn.disabled=true;const t=btn.textContent;btn.textContent='Please wait…';
