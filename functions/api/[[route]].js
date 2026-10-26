@@ -4,7 +4,7 @@
 //   IMAGES  -> R2 bucket
 //   GOOGLE_CLIENT_ID (optional variable) -> enables "Continue with Google"
 import {
-  json, fail, randHex, hashPassword, verifyPassword, createSession, endSession, currentUserId,
+  sha256, json, fail, randHex, hashPassword, verifyPassword, createSession, endSession, currentUserId,
   num, str, dt, day, validId, isObj, parse,
 } from '../../lib/core.js';
 
@@ -24,6 +24,8 @@ export async function onRequest(ctx) {
     if (path === '/auth/register' && m === 'POST') return register(req, env);
     if (path === '/auth/login' && m === 'POST') return login(req, env);
     if (path === '/auth/google' && m === 'POST') return googleLogin(req, env);
+    if (path === '/auth/forgot' && m === 'POST') return forgotPassword(req, env);
+    if (path === '/auth/reset' && m === 'POST') return resetPassword(req, env);
     if (path === '/auth/logout' && m === 'POST') return json({ ok: true }, 200, { 'Set-Cookie': await endSession(env, req) });
 
     // ----- everything below needs a login -----
@@ -329,3 +331,73 @@ async function news(ctx) {
   const list = events.filter((e) => { const k = e.currency + e.t + e.title; if (seen.has(k)) return false; seen.add(k); return true; }).sort((a, b) => a.t - b.t);
   return json({ events: list, source: 'Forex Factory', fetchedAt: Date.now() }, 200, { 'Cache-Control': 'private, max-age=300' });
 }
+
+// ---------- forgot / reset password (email via Brevo) ----------
+let resetTableReady = false;
+async function ensureResetTable(env) {
+  if (resetTableReady) return;
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS password_resets (
+    token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL, used_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`).run();
+  resetTableReady = true;
+}
+const RESET_MINUTES = 30;
+
+async function forgotPassword(req, env) {
+  if (!env.BREVO_API_KEY || !env.MAIL_FROM) return fail('Password reset by email is not set up yet. Log in with Google, or ask the site owner.', 503);
+  if (await tooManyAttempts(req, env)) return fail(LIMIT_MSG, 429);
+  const b = (await req.json().catch(() => null)) || {};
+  const email = String(b.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail('Please enter a valid email address.');
+  const generic = { ok: true, message: 'If an account exists for this email, a reset link is on its way. Check your inbox (and spam folder).' };
+  const u = await env.DB.prepare('SELECT id, name FROM users WHERE email = ?').bind(email).first();
+  if (!u) return json(generic);                        // don't reveal whether the email is registered
+  await ensureResetTable(env);
+  await env.DB.prepare('DELETE FROM password_resets WHERE user_id = ? OR expires_at < ?').bind(u.id, new Date().toISOString()).run();
+  const token = randHex(32);
+  const expires = new Date(Date.now() + RESET_MINUTES * 60000).toISOString();
+  await env.DB.prepare('INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, ?)').bind(await sha256(token), u.id, expires).run();
+  const link = new URL(req.url).origin + '/#reset=' + token;
+  const hi = u.name ? `Hi ${escapeHtml(u.name)},` : 'Hi,';
+  const html = `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;color:#1b1740">
+    <h2 style="color:#6d28d9">Reset your Trade Journal password</h2>
+    <p>${hi}</p><p>Someone (hopefully you) asked to reset the password for your Trade Journal account.</p>
+    <p style="margin:28px 0"><a href="${link}" style="background:#6d28d9;color:#fff;padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:bold">Set a new password</a></p>
+    <p style="font-size:13px;color:#555">This link works for ${RESET_MINUTES} minutes and can be used once. If you didn't ask for this, you can ignore this email — your password stays the same.</p></div>`;
+  let r;
+  try {
+  r = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { 'api-key': env.BREVO_API_KEY, 'Content-Type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({
+      sender: { email: env.MAIL_FROM, name: env.MAIL_FROM_NAME || 'Trade Journal' },
+      to: [{ email }],
+      subject: 'Reset your Trade Journal password',
+      htmlContent: html,
+      textContent: `Reset your Trade Journal password: ${link}\nThis link works for ${RESET_MINUTES} minutes. If you didn't ask for this, ignore this email.`,
+    }),
+  });
+  } catch (e) { console.error('Brevo unreachable', e); return fail('Could not send the email right now. Please try again in a few minutes.', 502); }
+  if (!r.ok) { console.error('Brevo error', r.status, await r.text().catch(() => '')); return fail('Could not send the email right now. Please try again in a few minutes.', 502); }
+  return json(generic);
+}
+
+async function resetPassword(req, env) {
+  if (await tooManyAttempts(req, env)) return fail(LIMIT_MSG, 429);
+  const b = (await req.json().catch(() => null)) || {};
+  const token = String(b.token || ''); const password = String(b.password || '');
+  if (!/^[a-f0-9]{64}$/.test(token)) return fail('This reset link is not valid. Please ask for a new one.');
+  if (password.length < 8) return fail('Password must be at least 8 characters.');
+  await ensureResetTable(env);
+  const row = await env.DB.prepare('SELECT user_id, expires_at, used_at FROM password_resets WHERE token_hash = ?').bind(await sha256(token)).first();
+  if (!row || row.used_at || row.expires_at < new Date().toISOString()) return fail('This reset link has expired or was already used. Please ask for a new one.', 400);
+  const hash = await hashPassword(password);
+  await env.DB.batch([
+    env.DB.prepare('UPDATE users SET password_hash = ?, last_login_at = CURRENT_TIMESTAMP WHERE id = ?').bind(hash, row.user_id),
+    env.DB.prepare('UPDATE password_resets SET used_at = CURRENT_TIMESTAMP WHERE user_id = ?').bind(row.user_id),
+    env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(row.user_id),      // log out everywhere else
+  ]);
+  const u = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(row.user_id).first();
+  return json({ user: publicUser(u) }, 200, { 'Set-Cookie': await createSession(env, req, u.id) });
+}
+function escapeHtml(t) { return String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
