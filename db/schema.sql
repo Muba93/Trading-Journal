@@ -100,3 +100,12 @@ CREATE TABLE IF NOT EXISTS auth_attempts (
   ts INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_attempts_ip_ts ON auth_attempts(ip, ts);
+
+-- Password reset links (also created automatically by the app the first time it's needed)
+CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash TEXT PRIMARY KEY,         -- SHA-256 of the emailed token (the token itself is never stored)
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL,
+  used_at    TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
