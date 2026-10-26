@@ -136,3 +136,18 @@ Cloudflare's free plans (Pages, Functions, D1, R2) cover a personal journal comf
 - `DELETE /api/account` deletes a user with all data and images.
 
 Trading involves risk. This app is a journal and coaching tool, not financial advice.
+
+---
+
+## Chart tab (price data)
+
+The **Chart** tab shows candles with a Long/Short position tool: drag Entry / SL / TP, see pips, R:R, risk $ and risk %, then **Log this trade** to open the trade form already filled in. Any saved trade can be shown on the chart with *View this trade on the chart* (entry/exit markers and its SL/TP lines).
+
+Price data comes from **Twelve Data** (free plan, prices may be delayed):
+1. Create a free account at twelvedata.com and copy your **API key**.
+2. Cloudflare → your Pages project → **Settings → Variables and Secrets** → add **`TWELVEDATA_API_KEY`** (type **Secret**) → paste the key.
+3. **Deployments → Retry deployment**, then open the Chart tab.
+
+Prices are cached at Cloudflare (60 s for live charts, 1 day for history) so the free request limit goes further. If a symbol doesn't load, set its **Chart data symbol** in *Settings → Instrument settings* (e.g. `XAU/USD`, `EUR/USD`). Some symbols (indices, oil) may need a paid data plan — check Twelve Data's current plans.
+
+Charts use TradingView Lightweight Charts™ (Apache 2.0). The TradingView attribution link on the chart is required by its licence — keep it.

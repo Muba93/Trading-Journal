@@ -43,6 +43,7 @@ export async function onRequest(ctx) {
       return json({ ok: true });
     }
     if (path === '/upload' && m === 'POST') return uploadImage(req, env, uid);
+    if (path === '/candles' && m === 'GET') return candles(req, env, ctx);
     if (path === '/account' && m === 'DELETE') return deleteAccount(req, env, uid);
 
     const [, kind, key] = path.split('/'); // e.g. /trades/abc123
@@ -246,4 +247,43 @@ async function deleteAccount(req, env, uid) {
     .map((t) => env.DB.prepare(`DELETE FROM ${t} WHERE user_id = ?`).bind(uid))
     .concat(env.DB.prepare('DELETE FROM users WHERE id = ?').bind(uid)));
   return json({ ok: true }, 200, { 'Set-Cookie': await endSession(env, req) });
+}
+
+// ---------- price data for the Chart tab (Twelve Data, cached at Cloudflare) ----------
+const INTERVALS = { M1: '1min', M5: '5min', M15: '15min', M30: '30min', H1: '1h', H4: '4h', D1: '1day' };
+async function candles(req, env, ctx) {
+  const apiKey = env.TWELVEDATA_API_KEY;
+  if (!apiKey) return json({ error: 'Chart data is not set up yet.', code: 'no_key' }, 503);
+  const u = new URL(req.url);
+  const symbol = String(u.searchParams.get('symbol') || '').trim();
+  const interval = INTERVALS[u.searchParams.get('tf') || 'M15'];
+  const end = u.searchParams.get('end');                      // optional, UTC 'YYYY-MM-DD HH:MM:SS'
+  if (!/^[A-Za-z0-9/._:-]{2,20}$/.test(symbol)) return fail('Invalid symbol');
+  if (!interval) return fail('Invalid timeframe');
+  if (end && !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(end)) return fail('Invalid end date');
+
+  const params = new URLSearchParams({ symbol, interval, outputsize: '500', timezone: 'UTC', order: 'ASC' });
+  if (end) params.set('end_date', end);
+  const cacheKey = new Request('https://candles.cache/v1?' + params.toString());
+  const cache = caches.default;
+  const hit = await cache.match(cacheKey);
+  if (hit) return new Response(hit.body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'private, max-age=30', 'X-Cache': 'HIT' } });
+
+  params.set('apikey', apiKey);
+  const r = await fetch('https://api.twelvedata.com/time_series?' + params.toString());
+  const j = await r.json().catch(() => null);
+  if (!j || j.status === 'error' || !Array.isArray(j.values)) {
+    const msg = (j && j.message) || 'The price data provider did not respond.';
+    return json({ error: msg, code: j && j.code === 429 ? 'rate_limited' : 'provider' }, j && j.code === 429 ? 429 : 502);
+  }
+  const bars = j.values.map((v) => {
+    const d = String(v.datetime || '');
+    const t = Date.parse((d.length === 10 ? d + 'T00:00:00' : d.replace(' ', 'T')) + 'Z') / 1000;
+    return { t, o: +v.open, h: +v.high, l: +v.low, c: +v.close };
+  }).filter((b) => Number.isFinite(b.t) && Number.isFinite(b.o) && Number.isFinite(b.c)).sort((a, b) => a.t - b.t);
+  const body = JSON.stringify({ symbol, interval, bars });
+  // live data: cache 60 s; history (with end date in the past): cache 1 day
+  const ttl = end && Date.parse(end.replace(' ', 'T') + 'Z') < Date.now() - 3600e3 ? 86400 : 60;
+  ctx.waitUntil(cache.put(cacheKey, new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${ttl}` } })));
+  return new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'private, max-age=30', 'X-Cache': 'MISS' } });
 }
