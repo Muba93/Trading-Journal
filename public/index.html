@@ -1879,9 +1879,36 @@ async function removeCash(){const c=window._ce.c;dlgClose(null);if(!await askCon
 const CHART_TF=['M5','M15','H1','H4','D1'];
 const DEFAULT_CHART_SYM={XAUUSD:'XAU/USD',XAGUSD:'XAG/USD',BTCUSD:'BTC/USD',ETHUSD:'ETH/USD',US30:'DJI',NAS100:'NDX',SPX500:'SPX',GER40:'DAX',UK100:'UKX',USOIL:'WTI/USD',UKOIL:'BRENT/USD'};
 function chartSymbol(sym){const o=(S.settings.specs||{})[sym];if(o&&o.chartSym)return o.chartSym;if(DEFAULT_CHART_SYM[sym])return DEFAULT_CHART_SYM[sym];return /^[A-Z]{6}$/.test(sym)?sym.slice(0,3)+'/'+sym.slice(3):sym;}
-const CH={pair:null,tf:'M15',bars:null,err:null,loading:false,pos:null,lot:'',acct:null,view:null,cache:{},chart:null,series:null,lines:{},raf:0};
+const CH={auto:(()=>{try{return localStorage.getItem('tj-chauto')!=='off';}catch(e){return true;}})(),timer:0,updatedAt:0,pair:null,tf:'M15',bars:null,err:null,loading:false,pos:null,lot:'',acct:null,view:null,cache:{},chart:null,series:null,lines:{},raf:0};
 function chartTime(utcSec){return utcSec+S.settings.homeTz*3600;}           // show times in your timezone
 function utcFmt(ms){const d=new Date(ms);return d.toISOString().slice(0,19).replace('T',' ');}
+/* live updates: fetch new candles in the background without redrawing the page (keeps zoom and your position) */
+function liveEvery(){return ({M1:60,M5:60,M15:60,M30:120,H1:120,H4:300,D1:600}[CH.tf]||60)*1000;}
+function chUpdatedText(){if(!CH.updatedAt||CH.view)return '';return 'Updated '+new Date(CH.updatedAt).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit',second:'2-digit'});}
+function toggleAuto(){CH.auto=!CH.auto;try{localStorage.setItem('tj-chauto',CH.auto?'on':'off');}catch(e){}render();if(CH.auto)liveRefresh(true);}
+let _liveBusy=false;
+async function liveRefresh(manual){
+  if(S.view!=='chart'||CH.view||!CH.series||_liveBusy)return;
+  if(!manual&&(!CH.auto||document.hidden))return;
+  _liveBusy=true;const sym=chartSymbol(CH.pair),tf=CH.tf,pair=CH.pair;
+  try{
+    const r=await fetch(`/api/candles?symbol=${encodeURIComponent(sym)}&tf=${tf}`,{credentials:'same-origin',cache:'no-store'});
+    if(r.status===401){showLogin();return;}
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){if(manual)toast(j.error||'Could not refresh prices');return;}
+    if(CH.pair!==pair||CH.tf!==tf||!CH.series)return;                    // user switched while loading
+    const nb=j.bars||[];if(!nb.length)return;
+    const lastT=CH.bars&&CH.bars.length?CH.bars[CH.bars.length-1].t:0;
+    if(nb[nb.length-1].t-lastT>500*60*60||!CH.bars){CH.bars=nb;render();return;}  // big gap: full redraw
+    for(const b of nb.filter(b=>b.t>=lastT))CH.series.update({time:chartTime(b.t),open:b.o,high:b.h,low:b.l,close:b.c});
+    const keep=CH.bars.filter(b=>b.t<nb[0].t);CH.bars=keep.concat(nb);
+    CH.cache[[sym,tf,''].join('|')]={bars:CH.bars,at:Date.now()};CH.updatedAt=Date.now();
+    const u=$('#chUpdated');if(u)u.textContent=chUpdatedText();
+    if(manual)toast('Prices updated');
+  }catch(e){if(manual)toast('Network error while refreshing');}
+  finally{_liveBusy=false;}
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.view==='chart'&&CH.auto)liveRefresh(false);});
 function chartSetPair(p){CH.pair=p;CH.pos=null;CH.view=null;CH.bars=null;render();}
 function chartSetTf(tf){CH.tf=tf;CH.bars=null;render();}
 async function loadCandles(force){
@@ -1889,11 +1916,11 @@ async function loadCandles(force){
   if(!force&&CH.cache[key]&&(end||Date.now()-CH.cache[key].at<60e3)){CH.bars=CH.cache[key].bars;CH.err=null;return;}
   CH.loading=true;CH.err=null;
   try{
-    const r=await fetch(`/api/candles?symbol=${encodeURIComponent(sym)}&tf=${CH.tf}${end?'&end='+encodeURIComponent(end):''}`,{credentials:'same-origin'});
+    const r=await fetch(`/api/candles?symbol=${encodeURIComponent(sym)}&tf=${CH.tf}${end?'&end='+encodeURIComponent(end):''}`,{credentials:'same-origin',cache:'no-store'});
     const j=await r.json().catch(()=>({}));
     if(r.status===401){showLogin();return;}
     if(!r.ok){CH.err={code:j.code||r.status,msg:j.error||'Could not load prices.'};CH.bars=null;}
-    else{CH.bars=j.bars||[];CH.cache[key]={bars:CH.bars,at:Date.now()};if(!CH.bars.length)CH.err={code:'empty',msg:'No price data for this symbol and timeframe.'};}
+    else{CH.bars=j.bars||[];CH.cache[key]={bars:CH.bars,at:Date.now()};CH.updatedAt=Date.now();if(!CH.bars.length)CH.err={code:'empty',msg:'No price data for this symbol and timeframe.'};}
   }catch(e){CH.err={code:'net',msg:'Network error while loading prices.'};}
   finally{CH.loading=false;}
 }
@@ -1904,7 +1931,9 @@ function viewChart(){
   <div class="row ch-tools">
     <button class="btn pairbtn" style="min-width:150px" onclick="window._pickFor='chart';openPairPicker()"><span>${esc(CH.pair)}</span><span class="note">▾</span></button>
     <div class="seg" role="group" aria-label="Timeframe">${CHART_TF.map(tf=>`<button class="${CH.tf===tf?'on':''}" onclick="chartSetTf('${tf}')">${tf}</button>`).join('')}</div>
-    <button class="btn sm" onclick="loadCandles(true).then(render)" title="Reload prices">↻ Refresh</button>
+    <button class="btn sm" onclick="liveRefresh(true)" title="Reload prices now">↻ Refresh</button>
+    ${CH.view?'':`<button type="button" class="chip ${CH.auto?'on':''}" aria-pressed="${CH.auto}" onclick="toggleAuto()" title="Update the chart automatically">${CH.auto?'● Live':'○ Live off'}</button>`}
+    <span id="chUpdated" class="note">${chUpdatedText()}</span>
     <span style="flex:1"></span>
     ${v?`<button class="btn" onclick="CH.view=null;CH.bars=null;CH.pos=null;render()">← Back to live chart</button>`:`
     <button class="btn" style="color:var(--profit)" onclick="placePosition('Long')">▲ Long</button>
@@ -2009,10 +2038,11 @@ async function drawChart(){
   const series=chart.addCandlestickSeries({upColor:'#10b981',downColor:'#fb7185',borderVisible:false,wickUpColor:'#10b981',wickDownColor:'#fb7185',priceFormat:{type:'price',precision:dec,minMove:Math.pow(10,-dec)}});
   series.setData(CH.bars.map(b=>({time:chartTime(b.t),open:b.o,high:b.h,low:b.l,close:b.c})));
   CH.chart=chart;CH.series=series;CH.lines={};
-  charts.lw={destroy(){cancelAnimationFrame(CH.raf);try{chart.remove();}catch(e){}CH.chart=null;CH.series=null;}};
+  charts.lw={destroy(){cancelAnimationFrame(CH.raf);clearInterval(CH.timer);CH.timer=0;try{chart.remove();}catch(e){}CH.chart=null;CH.series=null;}};
   if(CH.view)drawTradeOnChart();else if(CH.pos){updateLines();}
   bindDrag(box);
   const loop=()=>{updateZones();CH.raf=requestAnimationFrame(loop);};loop();
+  clearInterval(CH.timer);if(!CH.view)CH.timer=setInterval(()=>liveRefresh(false),liveEvery());
 }
 function updateLines(){
   const s=CH.series,p=CH.pos;if(!s)return;
