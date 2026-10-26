@@ -163,3 +163,23 @@ The **Economic news** card shows today's (or this week's) events for the currenc
 - The **News checked** rule ticks itself automatically for trades in the dates covered by the feed (this week and next week); older trades stay manual.
 
 Data comes from the public **Forex Factory** weekly calendar feed (no API key needed), cached at Cloudflare for 1 hour. It is an unofficial feed, so it can change or be unavailable at times — the card then shows a message and the rest of the app keeps working. Always double-check event times before trading.
+
+---
+
+## Forgot password (reset by email)
+
+On the login screen, **Forgot password?** asks for the email and sends a link (valid 30 minutes, usable once). Opening the link shows **Set a new password**; after saving, the user is logged in and all other sessions are logged out.
+
+Emails are sent with **Brevo** (free plan for transactional email — check their current limits):
+1. Create a free account at brevo.com.
+2. *Senders, domains & dedicated IPs → Senders* → add and **verify** the email address the reset emails should come from (e.g. your Gmail).
+3. *SMTP & API → API keys* → create an API key.
+4. Cloudflare → your Pages project → **Settings → Variables and Secrets** → add:
+   - `BREVO_API_KEY` (type **Secret**) = your API key
+   - `MAIL_FROM` = the verified sender email
+   - `MAIL_FROM_NAME` (optional) = e.g. `Trade Journal`
+5. Retry the latest deployment.
+
+The `password_resets` table is created automatically the first time it's needed (it's also in `db/schema.sql`). Without these variables, the Forgot password screen tells users to log in with Google instead.
+
+Tip: emails sent from a Gmail address through another service can land in spam. If that happens, add your own domain in Brevo later and send from it.
