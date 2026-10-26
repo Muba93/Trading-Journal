@@ -44,6 +44,7 @@ export async function onRequest(ctx) {
     }
     if (path === '/upload' && m === 'POST') return uploadImage(req, env, uid);
     if (path === '/candles' && m === 'GET') return candles(req, env, ctx);
+    if (path === '/news' && m === 'GET') return news(ctx);
     if (path === '/account' && m === 'DELETE') return deleteAccount(req, env, uid);
 
     const [, kind, key] = path.split('/'); // e.g. /trades/abc123
@@ -286,4 +287,45 @@ async function candles(req, env, ctx) {
   const ttl = end && Date.parse(end.replace(' ', 'T') + 'Z') < Date.now() - 3600e3 ? 86400 : 60;
   ctx.waitUntil(cache.put(cacheKey, new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${ttl}` } })));
   return new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'private, max-age=30', 'X-Cache': 'MISS' } });
+}
+
+// ---------- economic calendar for the dashboard (Forex Factory weekly feed, cached 1 hour) ----------
+const NEWS_FEEDS = ['https://nfs.faireconomy.media/ff_calendar_thisweek.json', 'https://nfs.faireconomy.media/ff_calendar_nextweek.json'];
+async function news(ctx) {
+  const cache = caches.default;
+  const events = []; let ok = false;
+  for (const url of NEWS_FEEDS) {
+    const key = new Request('https://news.cache/v1/' + encodeURIComponent(url));
+    let res = await cache.match(key);
+    if (!res) {
+      try {
+        const r = await fetch(url, { headers: { 'User-Agent': 'TradeJournal/1.0 (personal trading journal)' } });
+        if (r.ok) {
+          const text = await r.text();
+          res = new Response(text, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' } });
+          ctx.waitUntil(cache.put(key, res.clone()));
+        }
+      } catch (e) { /* feed unreachable: try the next one */ }
+    }
+    if (!res) continue;
+    const arr = await res.json().catch(() => null);
+    if (!Array.isArray(arr)) continue;
+    ok = true;
+    for (const e of arr) {
+      const t = Date.parse(e.date);
+      if (!Number.isFinite(t)) continue;
+      events.push({
+        title: String(e.title || '').slice(0, 120),
+        currency: String(e.country || '').toUpperCase().slice(0, 4),
+        t,
+        impact: String(e.impact || ''),          // High / Medium / Low / Holiday
+        forecast: String(e.forecast || ''),
+        previous: String(e.previous || ''),
+      });
+    }
+  }
+  if (!ok) return json({ error: 'The news calendar is not available right now. Please try again later.', code: 'feed' }, 502);
+  const seen = new Set();
+  const list = events.filter((e) => { const k = e.currency + e.t + e.title; if (seen.has(k)) return false; seen.add(k); return true; }).sort((a, b) => a.t - b.t);
+  return json({ events: list, source: 'Forex Factory', fetchedAt: Date.now() }, 200, { 'Cache-Control': 'private, max-age=300' });
 }

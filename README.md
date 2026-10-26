@@ -151,3 +151,15 @@ Price data comes from **Twelve Data** (free plan, prices may be delayed):
 Prices are cached at Cloudflare (60 s for live charts, 1 day for history) so the free request limit goes further. If a symbol doesn't load, set its **Chart data symbol** in *Settings → Instrument settings* (e.g. `XAU/USD`, `EUR/USD`). Some symbols (indices, oil) may need a paid data plan — check Twelve Data's current plans.
 
 Charts use TradingView Lightweight Charts™ (Apache 2.0). The TradingView attribution link on the chart is required by its licence — keep it.
+
+---
+
+## News on the dashboard
+
+The **Economic news** card shows today's (or this week's) events for the currencies of your **favourite pairs** (★ in the pair picker), with time in your timezone, countdown, impact, forecast and previous. Filters: *Today / This week*, *My pairs / All*, *High / High + Medium*.
+
+- A warning banner appears when a high-impact event for your pairs is coming within the **news warning window** (default 30 min, change it in *Settings → Risk rules*), and for 15 minutes after the release.
+- In the trade form, a warning appears if the entry time is within that window of high-impact news for the trade's currencies.
+- The **News checked** rule ticks itself automatically for trades in the dates covered by the feed (this week and next week); older trades stay manual.
+
+Data comes from the public **Forex Factory** weekly calendar feed (no API key needed), cached at Cloudflare for 1 hour. It is an unofficial feed, so it can change or be unavailable at times — the card then shows a message and the rest of the app keeps working. Always double-check event times before trading.
