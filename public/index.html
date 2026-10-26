@@ -113,6 +113,20 @@ textarea.inp{width:100%;min-height:84px;resize:vertical}
 .bar>i.safe{background:linear-gradient(90deg,#38bdf8,#818cf8)}
 .bar>i.warn{background:linear-gradient(90deg,#fbbf24,#f97316)}
 .propcard{box-shadow:none;background:var(--surface2)}
+#sec-news{scroll-margin-top:16px}
+.nw-row{display:grid;grid-template-columns:78px 48px 14px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 6px;border-bottom:1px solid var(--line)}
+.nw-row:last-of-type{border-bottom:0}
+.nw-row.past{opacity:.55}
+.nw-row.soon{background:var(--gold-soft);border-radius:10px}
+.nw-time{font-weight:800;font-size:15px}
+.nw-cd{font-size:11px;font-weight:600;color:var(--muted)}
+.nw-ccy{font-size:12px;font-weight:800;padding:3px 0;border-radius:6px;background:var(--surface2);border:1px solid var(--line);text-align:center}
+.nw-imp{width:12px;height:12px;border-radius:50%;background:var(--be)}
+.nw-imp.High{background:#ef4444}.nw-imp.Medium{background:#f59e0b}.nw-imp.Low{background:#facc15}.nw-imp.Holiday{background:#94a3b8}
+.nw-title{min-width:0;font-size:14px}
+.nw-fc{font-size:13px;white-space:nowrap}
+.nw-day{font-size:12px;font-weight:800;color:var(--muted);padding:12px 6px 4px}
+@media (max-width:860px){.nw-row{grid-template-columns:62px 44px 12px minmax(0,1fr)}.nw-fc{display:none}}
 .wkstatus{font-size:13px;font-weight:700;color:var(--muted)}.wkstatus.saved{color:var(--profit)}.wkstatus.error{color:var(--loss)}
 .ch-tools{margin-bottom:14px;gap:10px}
 .ch-tools .pairbtn{width:auto;flex:0 0 auto}
@@ -440,7 +454,7 @@ const DEFAULT_SETTINGS={
   rates:{EURUSD:1.10,GBPUSD:1.30,AUDUSD:0.66,NZDUSD:0.60,USDJPY:150,USDCAD:1.37,USDCHF:0.88},
   setups:['Break of structure','Order block','FVG fill','Liquidity sweep','Trend continuation','Range reversal'],
   rules:[{id:'r1',text:'HTF bias confirmed'},{id:'r2',text:'News checked'},{id:'r3',text:'Risk ≤ 1% of account',auto:'risk'},{id:'r4',text:'SL set before entry'},{id:'r5',text:'Max trades per day',auto:'count'}],
-  maxTrades:3, maxRisk:1, dailyStop:2,
+  maxTrades:3, maxRisk:1, dailyStop:2, newsWindow:30,
   goals:{daily:200,weekly:800,monthly:3000},
   sessions:[{name:'Asia',start:'05:00',end:'12:00'},{name:'London',start:'13:00',end:'18:00'},{name:'New York',start:'18:30',end:'01:00'}],
   homeTz:5, beTol:1, currency:'$',
@@ -565,6 +579,7 @@ function tradeNumberOfDay(t,r){
 function ruleChecks(t,r){
   const when=(r.tOpen??t.createdAt)||Date.now();
   return S.settings.rules.filter(rule=>!rule.createdAt||rule.createdAt<=when).map(rule=>{
+    if(rule.id==='r2'||rule.auto==='news'){const nn=newsNearTrade(t,r);if(nn){return {rule,ok:nn.length===0,auto:true,info:nn.length?`High-impact news within ${S.settings.newsWindow||30} min: ${nn.map(e=>e.currency+' '+e.title+' '+hhmm(e.t)).join(', ')}`:`No high-impact news within ${S.settings.newsWindow||30} min of entry for ${t.pair}`};}}
     if(rule.auto==='dailystop'){const l=dayLossBefore(t,r);if(l==null)return {rule,ok:!!(t.rules||{})[rule.id],auto:false};const sp=stopOf(t.platform);return {rule,ok:l<sp-1e-9,auto:true,info:l>0?`Account was down ${l.toFixed(2)}% today before this trade (your stop: ${sp}%)`:`No loss today before this trade (your stop: ${sp}%)`};}
     if(rule.auto==='count'){const n=tradeNumberOfDay(t,r);return {rule,ok:n!=null&&n<=S.settings.maxTrades,auto:true,info:n?`Trade #${n} of the day (max ${S.settings.maxTrades})`:'Set the entry time to count'};}
     if(rule.auto==='risk'&&r.riskPct!=null){return {rule,ok:r.riskPct<=S.settings.maxRisk+1e-9,auto:true,info:`Risk is ${r.riskPct.toFixed(2)}% of your ${money(r.balAtEntry,false)} balance (max ${S.settings.maxRisk}%)`};}
@@ -673,7 +688,7 @@ async function loadAll(user){
   S.user=user;
   try{const d=await api('/api/data');S.settings=mergeSettings(d.settings);S.trades=d.trades||{};S.cash=d.cash||{};S.weeks=d.weeks||{};}
   catch(e){if(e.code!=='auth')toast('Could not load your journal: '+e.message);return;}
-  COL=API_COL;S.mode='cloud';chatLoadLocal();$('#auth').hidden=true;S.ready=true;S._ver++;render();
+  COL=API_COL;S.mode='cloud';chatLoadLocal();$('#auth').hidden=true;S.ready=true;S._ver++;render();loadNews(true);
 }
 /* ---------- login screen ---------- */
 let authMode='login',gReady=false;
@@ -785,8 +800,65 @@ function todayDiscipline(){
   return {n:top?top[1]:0,acct:topName,total:tt.length,max:S.settings.maxTrades,pnl,worst,breached,stop:worst?worst.stop:stopOf(pf==='all'?null:pf)};
 }
 function jump(id){document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'start'});}
+/* ---------- news (economic calendar) ---------- */
+const NEWS={events:null,err:null,loading:false,at:0,tab:(()=>{try{return localStorage.getItem('tj-news-tab')||'today';}catch(e){return 'today';}})(),
+  scope:(()=>{try{return localStorage.getItem('tj-news-scope')||'fav';}catch(e){return 'fav';}})(),impact:(()=>{try{return localStorage.getItem('tj-news-imp')||'High';}catch(e){return 'High';}})()};
+const SYM_CCY={XAUUSD:['USD'],XAGUSD:['USD'],US30:['USD'],NAS100:['USD'],SPX500:['USD'],GER40:['EUR'],UK100:['GBP'],BTCUSD:['USD'],ETHUSD:['USD'],USOIL:['USD'],UKOIL:['USD']};
+function pairCurrencies(sym){if(SYM_CCY[sym])return SYM_CCY[sym];if(/^[A-Z]{6}$/.test(sym))return [sym.slice(0,3),sym.slice(3)];const q=spec(sym).quote;return q?[q]:[];}
+function newsPairs(){let p=S.settings.favorites.slice();if(!p.length){const since=Date.now()-30*864e5;p=[...new Set(Object.values(S.trades).filter(t=>(parseLocal(t.entryAt,num(t.tz)??S.settings.homeTz)||0)>since).map(t=>t.pair))];}return p;}
+function newsCurrencies(){const c=new Set();newsPairs().forEach(p=>pairCurrencies(p).forEach(x=>c.add(x)));return c;}
+function affectedPairs(ccy){return newsPairs().filter(p=>pairCurrencies(p).includes(ccy));}
+async function loadNews(force){
+  if(NEWS.loading)return;if(!force&&NEWS.events&&Date.now()-NEWS.at<30*60e3)return;
+  NEWS.loading=true;
+  try{const r=await fetch('/api/news',{credentials:'same-origin',cache:'no-store'});const j=await r.json().catch(()=>({}));
+    if(!r.ok){NEWS.err=j.error||'News is not available right now.';}else{NEWS.events=j.events||[];NEWS.err=null;NEWS.at=Date.now();}}
+  catch(e){NEWS.err='Could not load the news calendar.';}
+  finally{NEWS.loading=false;if(S.view==='dashboard'&&!document.querySelector('.overlay')&&!document.querySelector('.dlg'))render();}
+}
+function hhmm(ms){const d=homeDate(ms);return pad(d.getUTCHours())+':'+pad(d.getUTCMinutes());}
+function countdown(ms){const m=Math.round((ms-Date.now())/60000);if(m>=0&&m<1)return 'now';if(m>0)return m<60?`in ${m} min`:m<1440?`in ${Math.floor(m/60)}h ${m%60}m`:`in ${Math.floor(m/1440)}d`;const a=-m;return a<60?`${a} min ago`:a<1440?`${Math.floor(a/60)}h ago`:'';}
+function impactOk(e,level){return level==='All'?['High','Medium','Low'].includes(e.impact):level==='Medium'?['High','Medium'].includes(e.impact):e.impact==='High';}
+function newsFiltered(tab,scope,level){
+  if(!NEWS.events)return [];const ccy=newsCurrencies();const today=ymd(nowHome());const wk=weekOf(today),wkEnd=addDays(wk,6);
+  return NEWS.events.filter(e=>{const d=ymd(homeDate(e.t));if(tab==='today'?d!==today:(d<wk||d>wkEnd))return false;if(!impactOk(e,level))return false;return scope==='all'||ccy.has(e.currency);});
+}
+function setNews(k,v){NEWS[k]=v;try{localStorage.setItem({tab:'tj-news-tab',scope:'tj-news-scope',impact:'tj-news-imp'}[k],v);}catch(e){}render();setTimeout(()=>jump('sec-news'),20);}
+function newsSection(){
+  const pairs=newsPairs();const list=newsFiltered(NEWS.tab,NEWS.scope,NEWS.impact);const ccy=[...newsCurrencies()];
+  const seg=(k,opts)=>`<div class="seg" role="group">${opts.map(([v,l])=>`<button type="button" class="${NEWS[k]===v?'on':''}" onclick="setNews('${k}','${v}')">${l}</button>`).join('')}</div>`;
+  let lastDay='';
+  const rows=list.map(e=>{const past=e.t<Date.now()-5*60e3;const soon=!past&&e.t-Date.now()<=(S.settings.newsWindow||30)*60e3;const d=ymd(homeDate(e.t));
+    const dayHead=NEWS.tab==='week'&&d!==lastDay?(lastDay=d,`<div class="nw-day">${fmtDay(d)}</div>`):'';
+    const aff=affectedPairs(e.currency);
+    return dayHead+`<div class="nw-row ${past?'past':''} ${soon?'soon':''}"><div class="nw-time">${hhmm(e.t)}<div class="nw-cd" data-t="${e.t}">${countdown(e.t)}</div></div>
+      <span class="nw-ccy">${esc(e.currency)}</span><span class="nw-imp ${esc(e.impact)}" title="${esc(e.impact)} impact"></span>
+      <div class="nw-title"><b>${esc(e.title)}</b>${aff.length?`<div class="note">Affects ${aff.map(esc).join(', ')}</div>`:''}</div>
+      <div class="nw-fc">${e.forecast?`<span class="note">F</span> ${esc(e.forecast)}`:''}${e.previous?` <span class="note">P</span> ${esc(e.previous)}`:''}</div></div>`;}).join('');
+  return `<div class="card" id="sec-news" style="margin-bottom:16px">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px"><div><h2 style="margin:0">📅 Economic news</h2><div class="note">${NEWS.scope==='fav'?(ccy.length?`For your pairs (${pairs.slice(0,6).map(esc).join(', ')}${pairs.length>6?'…':''}) · currencies ${ccy.join(', ')}`:'Add favourite pairs (★ in the pair picker) to filter news'):'All currencies'} · times in UTC${S.settings.homeTz>=0?'+':''}${S.settings.homeTz}</div></div>
+      <div class="row">${seg('tab',[['today','Today'],['week','This week']])}${seg('scope',[['fav','My pairs'],['all','All']])}${seg('impact',[['High','High'],['Medium','High + Med']])}</div></div>
+    ${NEWS.err&&!NEWS.events?`<div class="note">${esc(NEWS.err)} <button type="button" class="linkbtn" onclick="loadNews(true)">Try again</button></div>`
+      :!NEWS.events?'<div class="note">Loading news…</div>'
+      :rows||`<div class="empty" style="padding:22px"><b>No ${NEWS.impact==='High'?'high-impact':'high or medium impact'} news ${NEWS.tab==='today'?'today':'this week'}${NEWS.scope==='fav'?' for your pairs':''} ✓</b>${NEWS.tab==='today'?'Check “This week” to plan ahead.':''}</div>`}
+    <div class="note" style="margin-top:8px">Source: Forex Factory calendar (updated hourly). Always double-check times before trading.</div></div>`;
+}
+function newsAlerts(){
+  if(!NEWS.events)return [];const w=(S.settings.newsWindow||30)*60e3;const ccy=newsCurrencies();const now=Date.now();
+  return NEWS.events.filter(e=>e.impact==='High'&&ccy.has(e.currency)&&e.t>now-15*60e3&&e.t<now+w).map(e=>{const aff=affectedPairs(e.currency).map(esc).join(', ');
+    return e.t>now?['warn',`⚠ <b>${esc(e.currency)} ${esc(e.title)}</b> at ${hhmm(e.t)} (<span class="nw-cd" data-t="${e.t}">${countdown(e.t)}</span>). Avoid opening new trades on ${aff} around the release.`]
+      :['info',`📰 <b>${esc(e.currency)} ${esc(e.title)}</b> was released at ${hhmm(e.t)}. Expect volatility on ${aff} — wait for the market to settle.`];});
+}
+/* high-impact news close to a trade's entry (for the trade form and the "News checked" rule) */
+function newsNearTrade(t,r){
+  if(!NEWS.events||!NEWS.events.length||r.tOpen==null)return null;
+  const first=NEWS.events[0].t,last=NEWS.events[NEWS.events.length-1].t;if(r.tOpen<first-864e5||r.tOpen>last+864e5)return null; // outside the feed's dates
+  const w=(S.settings.newsWindow||30)*60e3;const cs=pairCurrencies(t.pair);
+  return NEWS.events.filter(e=>e.impact==='High'&&cs.includes(e.currency)&&Math.abs(e.t-r.tOpen)<=w);
+}
+setInterval(()=>{document.querySelectorAll('.nw-cd[data-t]').forEach(el=>{el.textContent=countdown(Number(el.dataset.t));});if(S.view==='dashboard'&&S.ready)loadNews(false);},60e3);
 function dashAlerts(){
-  const d=todayDiscipline();const a=[];
+  const d=todayDiscipline();const a=[...newsAlerts()];
   if(d.n>d.max)a.push(['loss',`You've taken <b>${d.n} trades today on ${esc(d.acct)}</b> — your limit is ${d.max} per account. Trades beyond your limit are usually revenge or FOMO trades. Stop for today.`]);
   else if(d.n===d.max)a.push(['warn',`You've reached your limit of <b>${d.max} trades</b> today on <b>${esc(d.acct)}</b>. You're done for the day — protect your account.`]);
   for(const b of d.breached)a.push(['loss',`⛔ <b>${esc(b.p.name)}</b> is down <b>${b.pct.toFixed(2)}%</b> today (${money(b.amt,false)}) — you set your daily stop at ${b.stop}% for this account. Stop trading it today.`]);
@@ -819,8 +891,9 @@ function viewDashboard(){
   const discFrac=d.max?d.n/d.max:0;
   const stopFrac=d.worst?d.worst.pct/d.stop:0;
   return `<div class="topbar"><div><h1>Dashboard</h1><div class="sub">${rangeLabel()} · ${S.filter.platform==='all'?'all platforms':esc(S.settings.platforms.find(p=>p.id===S.filter.platform)?.name||'')}</div></div>${filterBar()}</div>
-  <div class="jumpbar">${[['sec-top','Overview'],...(S.settings.platforms.some(p=>p.type==='prop')?[['sec-prop','Prop firm']]:[]),['sec-cal','Calendar'],['sec-week','Weekly notes'],['sec-perf','Performance'],['sec-mgmt','Management']].map(([id,l])=>`<button type="button" class="chip" onclick="jump('${id}')">${l}</button>`).join('')}</div>
+  <div class="jumpbar">${[['sec-top','Overview'],['sec-news','News'],...(S.settings.platforms.some(p=>p.type==='prop')?[['sec-prop','Prop firm']]:[]),['sec-cal','Calendar'],['sec-week','Weekly notes'],['sec-perf','Performance'],['sec-mgmt','Management']].map(([id,l])=>`<button type="button" class="chip" onclick="jump('${id}')">${l}</button>`).join('')}</div>
   <div id="sec-top">${dashAlerts()}</div>
+  ${newsSection()}
   <div class="hero">${hero}
     <div class="card"><div class="row" style="justify-content:space-between;margin-bottom:8px"><h2 style="margin:0">${ac&&!ac.noBal?'Account balance':'Equity curve'}</h2><div class="chips">${toggles}</div></div>
       ${ac&&!ac.noBal&&ac.hasCash?'<div class="note" style="margin:0 0 6px">◆ marks deposits, withdrawals and payouts</div>':''}
@@ -1095,6 +1168,7 @@ function tabInfo(t,r){
   const tzs=[];for(let z=-12;z<=14;z++)tzs.push(`<option value="${z}" ${Number(t.tz)===z?'selected':''}>UTC${z>=0?'+':''}${z}</option>`);
   const tn=tradeNumberOfDay(t,r);const lossToday=dayLossBefore(t,r);const myStop=stopOf(t.platform);
   const disc=[];if(tn&&tn>S.settings.maxTrades)disc.push(`This is trade <b>#${tn}</b> today — your limit is ${S.settings.maxTrades}. Extra trades are usually revenge or FOMO trades. Are you sure?`);
+  const nn=newsNearTrade(t,r);if(nn&&nn.length)disc.push(`High-impact news close to this entry: ${nn.map(e=>`<b>${esc(e.currency)} ${esc(e.title)}</b> at ${hhmm(e.t)}`).join(', ')} (within ${S.settings.newsWindow||30} min).`);
   if(lossToday!=null&&lossToday>=myStop)disc.push(`This account was already down <b>${lossToday.toFixed(2)}%</b> today before this trade — your daily stop for this account is ${myStop}%. Trading on now breaks your own rule.`);
   return `${disc.map(x=>`<div class="alert loss">${x}</div>`).join('')}${t.manual?`<div class="warn" style="margin-bottom:14px">Imported from your Excel journal. Prices and times weren't recorded, so P&amp;L comes from your account balance and the session is unknown. You can fill in prices if you have them.</div>`:''}<div class="sect">Instrument</div>
   <div class="fg">
@@ -2102,6 +2176,7 @@ function viewSettings(){
     <button class="btn sm primary" style="margin-top:10px" onclick="S.filter.platform='all';editGoals()">Set goals</button>
     <h2 style="margin-top:20px">Risk rules</h2><div class="fg" style="grid-template-columns:repeat(2,1fr)">
       <div class="f"><label>Max trades per day</label><input class="inp" type="number" min="1" value="${s.maxTrades}" onchange="S.settings.maxTrades=num(this.value)||1;saveSettings()"></div>
+      <div class="f"><label>News warning window (minutes)</label><input class="inp" type="number" min="5" step="5" value="${s.newsWindow??30}" onchange="S.settings.newsWindow=num(this.value)||30;saveSettings()"><div class="note">Warn about high-impact news this many minutes before/after.</div></div>
       <div class="f"><label>Default daily loss stop (%)</label><input class="inp" type="number" step="any" value="${s.dailyStop??2}" onchange="S.settings.dailyStop=num(this.value)||2;saveSettings()"><div class="note">Used when an account has no stop of its own (set it per account with Edit).</div></div>
       <div class="f"><label>Max risk per trade (%)</label><input class="inp" type="number" step="any" value="${s.maxRisk}" onchange="S.settings.maxRisk=num(this.value)||1;saveSettings()"></div>
       <div class="f"><label>Break-even tolerance (pips)</label><input class="inp" type="number" step="any" value="${s.beTol}" onchange="S.settings.beTol=num(this.value)??0;saveSettings()"></div></div></div>
