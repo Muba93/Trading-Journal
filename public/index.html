@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Trade Journal</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0e0c22">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Journal">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📈</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2252,7 +2259,9 @@ async function rmPlatform(i){const p=S.settings.platforms[i];const used=Object.v
   S.settings.platforms.splice(i,1);if(S.filter.platform===p.id)S.filter.platform='all';if(M&&M.t.platform===p.id){M.t.platform=S.settings.platforms[0]?.id||'';}saveSettings();
   if($('#acctBody'))renderAccts();else render();toast(p.name+' removed');}
 async function wipeAll(){if(!await askConfirm('Delete all trades?','Every trade in your journal will be deleted permanently. Settings are kept.','Continue',true))return;if((await askText('Confirm delete','Type DELETE to confirm',{ok:'Delete all'}))!=='DELETE')return;for(const id of Object.keys(S.trades))await deleteTrade(id);toast('All trades deleted');render();}
-function setTheme(v){try{localStorage.setItem('tj-theme',v);}catch(e){}if(v==='auto')delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=v;render();}
+function setTheme(v){try{localStorage.setItem('tj-theme',v);}catch(e){}if(v==='auto')delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=v;syncThemeColor();render();}
+// phone status bar colour (installed app / mobile browser) follows the app theme
+function syncThemeColor(){const m=document.querySelector('meta[name="theme-color"]');if(m)m.content=isDark()?'#0e0c22':'#e8e6f2';}
 function isDark(){const d=document.documentElement.dataset.theme;return d?d==='dark':matchMedia('(prefers-color-scheme: dark)').matches;}
 function toggleTheme(){setTheme(isDark()?'light':'dark');}
 const SUN='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
@@ -2267,8 +2276,11 @@ window.addEventListener('error',e=>toast('Something went wrong: '+(e.message||'u
 $('#coachFab').innerHTML=CHAT_ICON;$('#chatHeadAv').innerHTML=CHAT_ICON;$('#chatX').innerHTML=IC.x;
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#coachPanel').hidden&&!document.querySelector('.dlg')&&!document.querySelector('.lightbox')){e.stopImmediatePropagation();closeCoach();}},true);
 window.addEventListener('unhandledrejection',e=>toast('Something went wrong: '+(e.reason?.message||e.reason?.code||'unknown error')));
+syncThemeColor();matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',syncThemeColor);
 render();
 initStorage();
+// installable phone app (see sw.js)
+if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
 </script>
 </body>
 </html>
