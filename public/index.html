@@ -8,9 +8,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="/vendor/chart.umd.min.js"></script>
-<script src="/vendor/xlsx.full.min.js"></script>
-<script src="/vendor/lightweight-charts.js"></script>
+<script src="/vendor/chart.umd.min.js?v=4.4.1"></script>
+<script src="/vendor/xlsx.full.min.js?v=0.18.5"></script>
+<script src="/vendor/lightweight-charts.js?v=4.2.3"></script>
 <style>:root{
   --bg:#e8e6f2; --surface:#f8f7fc; --surface2:#efedf7; --ink:#1b1740; --muted:#6a6690; --line:#e5e2f3;
   --profit:#05976a; --profit-soft:#d5f8e8; --profit-fill:#10b981;
@@ -981,7 +981,19 @@ function _oldEditGoals(){
   <div class="dlg-f"><button class="btn" onclick="dlgClose(null)">Cancel</button><button class="btn primary" onclick="saveGoals()">Save goals</button></div>`);
 }
 function _oldSaveGoals(){['daily','weekly','monthly'].forEach(k=>{S.settings.goals[k]=num($('#g_'+k).value)||0;});saveSettings();dlgClose(null);toast('Goals saved');render();}
+/* ---------- library check: reload a chart library if the browser got a bad cached copy ---------- */
+const LIBS={Chart:'/vendor/chart.umd.min.js',XLSX:'/vendor/xlsx.full.min.js',LightweightCharts:'/vendor/lightweight-charts.js'};
+const _libTry={};
+function ensureLib(name){
+  if(window[name])return true;
+  if(_libTry[name])return false;_libTry[name]=true;
+  const sc=document.createElement('script');sc.src=LIBS[name]+'?r='+Date.now();
+  sc.onload=()=>{if(window[name]&&!document.querySelector('.overlay'))render();};
+  sc.onerror=()=>toast('Could not load '+(name==='XLSX'?'the Excel tools':'the charts')+'. Check your connection and refresh.');
+  document.head.appendChild(sc);return false;
+}
 function drawDashboard(){
+  if(!ensureLib('Chart'))return;
   drawInsights();
   if(!$('#eq'))return;const ac=acctInfo();const useBal=ac&&!ac.noBal;
   let ev;
@@ -1634,12 +1646,14 @@ async function saveFile(name,data){
   try{await DL.save({filename:name,data});}catch(e){if(e.code!=='declined')toast('Download failed: '+(e.message||e.code));}
 }
 function exportData(kind){
+  if(!ensureLib('XLSX')){toast('Loading the Excel tools — try again in a moment');return;}
   const rows=exportRows();if(!rows.length){toast('No trades to export with the current filters');return;}
   const stamp=ymd(nowHome());
   if(kind==='csv'){const ws=XLSX.utils.json_to_sheet(rows);saveFile(`trade-journal-${stamp}.csv`,XLSX.utils.sheet_to_csv(ws));}
   else{const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'Trades');saveFile(`trade-journal-${stamp}.xlsx`,new Uint8Array(XLSX.write(wb,{type:'array',bookType:'xlsx'})));}
 }
 function sampleFile(){
+  if(!ensureLib('XLSX')){toast('Loading the Excel tools — try again in a moment');return;}
   const rows=[
    {'Entry Date':'2026-03-02 14:05','Exit Date':'2026-03-02 16:40','Timezone':5,'Pair':'EURUSD','Direction':'Long','Platform':'Prop firm','Entry Price':1.0850,'Exit Price':1.0892,'Lot Size':1,'Initial SL':1.0830,'Initial TP':1.0900,'Final SL':1.0850,'Final TP':1.0900,'Fees':7,'P&L Override':'','Analysis TF':'H4','Entry TF':'M15','Setups':'Order block; Liquidity sweep','Rating':8,'Reason':'H4 bullish, swept Asia low','Mistakes':''},
    {'Entry Date':'2026-03-03 19:10','Exit Date':'2026-03-03 19:55','Timezone':5,'Pair':'XAUUSD','Direction':'Short','Platform':'Personal','Entry Price':2350.5,'Exit Price':2353.5,'Lot Size':0.1,'Initial SL':2353.5,'Initial TP':2341.5,'Final SL':2353.5,'Final TP':2341.5,'Fees':'','P&L Override':'','Analysis TF':'H1','Entry TF':'M5','Setups':'Break of structure','Rating':5,'Reason':'NY open rejection','Mistakes':'Late entry'}
@@ -1650,6 +1664,7 @@ function sampleFile(){
   saveFile('trade-journal-sample.xlsx',new Uint8Array(XLSX.write(wb,{type:'array',bookType:'xlsx'})));
 }
 $('#importFile').addEventListener('change',async e=>{
+  if(!ensureLib('XLSX')){e.target.value='';toast('Loading the Excel tools — please choose the file again in a moment');return;}
   const f=e.target.files[0];e.target.value='';if(!f)return;
   try{
     const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
@@ -1762,6 +1777,7 @@ function _unusedCoachCard(){return `
     <div id="coachOut" class="coach" style="margin-top:12px">${SAMPLE?(window._coach||''):'<span class="note">The AI coach is available when this page is opened in Claude.</span>'}</div></div>`;
 }
 function drawInsights(){
+  if(!ensureLib('Chart'))return;
   if(!$('#c_sess'))return;
   const c=filtered().filter(z=>z.r.closed&&z.r.pnl!=null);const css=getComputedStyle(document.documentElement);
   const P=css.getPropertyValue('--profit-fill').trim(),L=css.getPropertyValue('--loss-fill').trim(),B='#a5b4fc';
@@ -1940,6 +1956,7 @@ function viewMoney(){
     :`<div style="margin-top:12px">${emptyBox('No transactions yet','Add deposits and withdrawals for personal accounts, and challenge fees and payouts for prop firm accounts.')}</div>`}</div>`;
 }
 function drawMoney(){
+  if(!ensureLib('Chart'))return;
   const cv=$('#c_money');if(!cv)return;const pid=S.filter.platform,yr=S.moneyYear;const {cs,trades}=moneyRows(pid,yr);
   const m={};trades.forEach(z=>{const k=z.r.day.slice(0,7);(m[k]=m[k]||{p:0,s:0,g:0}).p+=z.r.pnl;});cs.forEach(c=>{const k=String(c.date).slice(0,7);(m[k]=m[k]||{p:0,s:0,g:0});m[k].s+=cashSpent(c);m[k].g+=cashGot(c);});
   const ks=Object.keys(m).sort();const css=getComputedStyle(document.documentElement);const P=css.getPropertyValue('--profit-fill').trim(),L=css.getPropertyValue('--loss-fill').trim();
@@ -2124,7 +2141,7 @@ async function viewTradeOnChart(id){
   S.view='chart';render();window.scrollTo(0,0);
 }
 async function drawChart(){
-  const box=$('#chBox');if(!box||!window.LightweightCharts)return;
+  const box=$('#chBox');if(!box||!ensureLib('LightweightCharts'))return;
   if(!CH.bars&&!CH.err&&!CH.loading){await loadCandles();if(S.view==='chart')render();return;}
   if(!CH.bars||!CH.bars.length)return;
   const css=getComputedStyle(document.documentElement);const mut=css.getPropertyValue('--muted').trim(),line=css.getPropertyValue('--line').trim();
