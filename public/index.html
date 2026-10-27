@@ -265,6 +265,9 @@ td.num,th.num{text-align:right}
 .cell.w{background:var(--profit-soft);border-color:transparent}
 .cell.l{background:var(--loss-soft);border-color:transparent}
 .cell.wk{background:var(--surface2)}
+.cell .short{display:none}
+.prop2{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}
+@media (max-width:1100px){.prop2{grid-template-columns:1fr}}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
 .seg button{border:0;background:none;padding:8px 12px;font-weight:700;color:var(--muted);font-size:13px}
 .seg button.on{background:var(--btn);color:#fff}
@@ -322,7 +325,7 @@ td.num,th.num{text-align:right}
   nav.side{display:none}
   main{padding:18px 14px 110px}
   .mobnav{display:flex;position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);z-index:40;padding:6px 4px calc(6px + env(safe-area-inset-bottom,0px));overflow-x:auto}
-  .mobnav button{white-space:nowrap;flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;font-weight:700;color:var(--muted);padding:6px 4px;min-width:60px}
+  .mobnav button{white-space:nowrap;flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10.5px;font-weight:700;color:var(--muted);padding:6px 1px;min-width:0}
   .mobnav button.on{color:var(--accent)}
   .mobnav svg{width:20px;height:20px}
   .g2,.g3{grid-template-columns:1fr}
@@ -333,7 +336,9 @@ td.num,th.num{text-align:right}
   .cal{grid-template-columns:repeat(7,minmax(0,1fr))}
   .cal .wkcol{display:none}
   .cell{min-height:64px;padding:5px;font-size:10px}
-  .cell .p{font-size:11px}
+  .cell .p{font-size:11px;white-space:nowrap;letter-spacing:-.2px}
+  .cell .note{white-space:nowrap}
+  .cell .full{display:none}.cell .short{display:inline}
   h1{font-size:23px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
@@ -481,6 +486,8 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const num=v=>{if(v===''||v==null)return null;const n=Number(v);return isFinite(n)?n:null;};
 function money(v,sign=true){if(v==null||!isFinite(v))return '—';const c=S.settings.currency||'$';const a=Math.abs(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});return (v<0?'−':(sign&&v>0?'+':''))+c+a;}
+// short amount for tight spaces (phone calendar): +$284, −$32, +$1.7k
+function moneyShort(v){if(v==null||!isFinite(v))return '—';const c=S.settings.currency||'$';const a=Math.abs(v);const n=a>=1000?(a/1000).toFixed(a>=10000?0:1).replace(/\.0$/,'')+'k':String(Math.round(a));return (v<0?'−':v>0?'+':'')+c+n;}
 const cls=v=>v>0?'pos':v<0?'neg':'zero';
 const pct=v=>v==null||!isFinite(v)?'—':(v*100).toFixed(1)+'%';
 function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),2600);}
@@ -1440,7 +1447,7 @@ function propSection(){
       const hist=journeys().filter(j=>!shownRoots.has(j.root.id)&&(S.filter.platform==='all'||j.chain.some(x=>x.id===S.filter.platform)));
       const histCard=hist.length?`<div class="card propcard"><h3 style="margin:0 0 4px">Challenge history</h3><div class="note" style="margin-bottom:10px">Past challenges and how each one ended.</div>${hist.map(j=>{const ev=j.chain.flatMap(x=>acctEvents(x.id));const days=ev.map(e=>e.day).filter(Boolean).sort();const lastS=j.st[j.st.length-1].s;const end=j.failed?.s?.fail?.day||lastS?.passDay||days[days.length-1];
         return `<div class="hrow"><div style="min-width:0"><b>${esc(j.root.name)}</b><div class="note">${PROGRAMS[j.prog]?.label||''}${days.length?` · ${shortDay(days[0])} – ${shortDay(end)}`:''}</div><div style="margin-top:4px">${journeyPath(j)}</div></div><div style="text-align:right;flex-shrink:0"><span class="pill ${j.status==='Failed'||j.status.includes('breached')?'Loss':j.status.startsWith('Funded')?'Long':j.status.startsWith('Passed')?'Win':'Open'}">${j.status}</span>${j.fee||j.got?`<div class="note" style="margin-top:4px">net <b class="${cls(j.net)}">${money(j.net)}</b></div>`:''}</div></div>`;}).join('')}</div>`:'';
-      if(show.length===1)return `<div class="grid" style="grid-template-columns:${hist.length?'minmax(0,1.6fr) minmax(0,1fr)':'1fr'}">${propCard(show[0],true)}${histCard}</div>`;
+      if(show.length===1)return `<div class="grid ${hist.length?'prop2':''}">${propCard(show[0],true)}${histCard}</div>`;
       if(show.length===2)return `<div class="grid g3">${show.map(p=>propCard(p)).join('')}${histCard}</div>`;
       return `<div class="grid g3">${show.map(p=>propCard(p)).join('')}</div>${histCard?`<div style="margin-top:16px">${histCard}</div>`:''}`;})()}</div>`;
 }
@@ -1712,7 +1719,7 @@ function viewCalendar(embed){
   for(let i=0;i<totalCells;i++){
     const d=new Date(Date.UTC(y,m,1-startOff+i));const key=ymd(d);const inM=d.getUTCMonth()===m;const arr=inM?(byDay[key]||[]):[];const p=sumBy(arr,z=>z.r.pnl);
     if(inM){weekP+=p;weekN+=arr.length;}
-    cells+=`<div class="cell ${!inM?'out':''} ${arr.length?(p>0?'w':p<0?'l':''):''} ${key===today?'today':''}"><span class="d">${d.getUTCDate()}</span>${arr.length?`<span class="p ${cls(p)}">${money(p)}</span><span class="note">${arr.length} trade${arr.length>1?'s':''}</span>`:''}</div>`;
+    cells+=`<div class="cell ${!inM?'out':''} ${arr.length?(p>0?'w':p<0?'l':''):''} ${key===today?'today':''}"><span class="d">${d.getUTCDate()}</span>${arr.length?`<span class="p ${cls(p)}"><span class="full">${money(p)}</span><span class="short">${moneyShort(p)}</span></span><span class="note"><span class="full">${arr.length} trade${arr.length>1?'s':''}</span><span class="short">${arr.length} tr</span></span>`:''}</div>`;
     if(i%7===6){cells+=`<div class="cell wk wkcol"><span class="d">Week ${weeks.length+1}</span>${weekN?`<span class="p ${cls(weekP)}">${money(weekP)}</span><span class="note">${weekN} trade${weekN>1?'s':''}</span>`:'<span class="note" style="margin-top:auto">No trades</span>'}</div>`;weeks.push({p:weekP,n:weekN});weekP=0;weekN=0;}
   }
   const label=first.toLocaleDateString(undefined,{month:'long',year:'numeric',timeZone:'UTC'});
