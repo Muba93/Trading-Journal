@@ -595,7 +595,7 @@ function tradeNumberOfDay(t,r){
 function ruleChecks(t,r){
   const when=(r.tOpen??t.createdAt)||Date.now();
   return S.settings.rules.filter(rule=>!rule.createdAt||rule.createdAt<=when).map(rule=>{
-    if(rule.id==='r2'||rule.auto==='news'){const nn=newsNearTrade(t,r);if(nn){return {rule,ok:nn.length===0,auto:true,info:nn.length?`High-impact news within ${S.settings.newsWindow||30} min: ${nn.map(e=>e.currency+' '+e.title+' '+hhmm(e.t)).join(', ')}`:`No high-impact news within ${S.settings.newsWindow||30} min of entry for ${t.pair}`};}}
+    if(rule.id==='r2'||rule.auto==='news'){const nn=newsNearTrade(t,r);if(nn){return {rule,ok:nn.length===0,auto:true,info:nn.length?`Broken: ${newsWindowText(t)} — ${nn.map(e=>e.currency+' '+e.title+' '+hhmm(e.t)).join(', ')}`:`No ${newsWindowText(t)} for ${t.pair}`};}}
     if(rule.auto==='dailystop'){const l=dayLossBefore(t,r);if(l==null)return {rule,ok:!!(t.rules||{})[rule.id],auto:false};const sp=stopOf(t.platform);return {rule,ok:l<sp-1e-9,auto:true,info:l>0?`Account was down ${l.toFixed(2)}% today before this trade (your stop: ${sp}%)`:`No loss today before this trade (your stop: ${sp}%)`};}
     if(rule.auto==='count'){const n=tradeNumberOfDay(t,r);return {rule,ok:n!=null&&n<=S.settings.maxTrades,auto:true,info:n?`Trade #${n} of the day (max ${S.settings.maxTrades})`:'Set the entry time to count'};}
     if(rule.auto==='risk'&&r.riskPct!=null){return {rule,ok:r.riskPct<=S.settings.maxRisk+1e-9,auto:true,info:`Risk is ${r.riskPct.toFixed(2)}% of your ${money(r.balAtEntry,false)} balance (max ${S.settings.maxRisk}%)`};}
@@ -839,12 +839,28 @@ function todayDiscipline(){
 function jump(id){document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'start'});}
 /* ---------- news (economic calendar) ---------- */
 const NEWS={events:null,err:null,loading:false,at:0,tab:(()=>{try{return localStorage.getItem('tj-news-tab')||'today';}catch(e){return 'today';}})(),
-  scope:(()=>{try{return localStorage.getItem('tj-news-scope')||'fav';}catch(e){return 'fav';}})(),impact:(()=>{try{return localStorage.getItem('tj-news-imp')||'High';}catch(e){return 'High';}})()};
+  scope:(()=>{try{return localStorage.getItem('tj-news-scope')||'fav';}catch(e){return 'fav';}})(),impact:(()=>{try{return localStorage.getItem('tj-news-imp2')||'Prop';}catch(e){return 'Prop';}})()};
 const SYM_CCY={XAUUSD:['USD'],XAGUSD:['USD'],US30:['USD'],NAS100:['USD'],SPX500:['USD'],GER40:['EUR'],UK100:['GBP'],BTCUSD:['USD'],ETHUSD:['USD'],USOIL:['USD'],UKOIL:['USD']};
 function pairCurrencies(sym){if(SYM_CCY[sym])return SYM_CCY[sym];if(/^[A-Z]{6}$/.test(sym))return [sym.slice(0,3),sym.slice(3)];const q=spec(sym).quote;return q?[q]:[];}
 function newsPairs(){let p=S.settings.favorites.slice();if(!p.length){const since=Date.now()-30*864e5;p=[...new Set(Object.values(S.trades).filter(t=>(parseLocal(t.entryAt,num(t.tz)??S.settings.homeTz)||0)>since).map(t=>t.pair))];}return p;}
 function newsCurrencies(){const c=new Set();newsPairs().forEach(p=>pairCurrencies(p).forEach(x=>c.add(x)));return c;}
 function affectedPairs(ccy){return newsPairs().filter(p=>pairCurrencies(p).includes(ccy));}
+/* prop firm restricted news: no opening/closing trades within propWin() minutes before/after.
+   Matched on Forex Factory titles, so impact level alone doesn't decide it. */
+const PROP_KEY=/interest rate|rate decision|cash rate|bank rate|policy rate|overnight rate|refinancing rate|federal funds|monetary policy statement|rate statement|press conference|\bcpi\b|inflation|\bgdp\b|\bpce\b|\bpmi\b|unemployment|employment|claimant/i; // all currencies
+const PROP_USD=/non-farm|\bism\b|\bppi\b|fomc|trade balance|jobless|consumer confidence|sentiment|jolts|average hourly|bond auction|note auction|home sales|durable goods|speaks|empire state|retail sales/i; // extra USD events
+const PROP_ALL=/\bcpi\b|inflation rate|federal funds|fomc statement|fomc press|non-farm employment/i; // USD events that restrict every instrument
+function propWin(){return (S.settings.propNewsMin??5)*60e3;}
+function hasProp(){return S.settings.platforms.some(p=>p.type==='prop');}
+function isPropTrade(t){return S.settings.platforms.find(p=>p.id===t.platform)?.type==='prop';}
+function propNewsFor(e,sym){
+  const t=e.title,c=e.currency,hi=e.impact==='High';
+  if(c==='USD'&&PROP_ALL.test(t))return true;
+  if(c==='USD'&&pairCurrencies(sym).includes('USD')&&(PROP_KEY.test(t)||PROP_USD.test(t)))return true;
+  if(/^(XAU|XAG)/.test(sym))return (hi&&['USD','AUD','CAD'].includes(c))||(hi&&['EUR','GBP'].includes(c)&&/speaks/i.test(t))||PROP_KEY.test(t);
+  return false;
+}
+function propPairsFor(e){return newsPairs().filter(p=>propNewsFor(e,p));}
 async function loadNews(force){
   if(NEWS.loading)return;if(!force&&NEWS.events&&Date.now()-NEWS.at<30*60e3)return;
   NEWS.loading=true;
@@ -858,42 +874,55 @@ function countdown(ms){const m=Math.round((ms-Date.now())/60000);if(m>=0&&m<1)re
 function impactOk(e,level){return level==='All'?['High','Medium','Low'].includes(e.impact):level==='Medium'?['High','Medium'].includes(e.impact):e.impact==='High';}
 function newsFiltered(tab,scope,level){
   if(!NEWS.events)return [];const ccy=newsCurrencies();const today=ymd(nowHome());const wk=weekOf(today),wkEnd=addDays(wk,6);
-  return NEWS.events.filter(e=>{const d=ymd(homeDate(e.t));if(tab==='today'?d!==today:(d<wk||d>wkEnd))return false;if(!impactOk(e,level))return false;return scope==='all'||ccy.has(e.currency);});
+  return NEWS.events.filter(e=>{const d=ymd(homeDate(e.t));if(tab==='today'?d!==today:(d<wk||d>wkEnd))return false;if(level==='Prop')return propPairsFor(e).length>0;if(!impactOk(e,level))return false;return scope==='all'||ccy.has(e.currency);});
 }
-function setNews(k,v){NEWS[k]=v;try{localStorage.setItem({tab:'tj-news-tab',scope:'tj-news-scope',impact:'tj-news-imp'}[k],v);}catch(e){}render();setTimeout(()=>jump('sec-news'),20);}
+function setNews(k,v){NEWS[k]=v;try{localStorage.setItem({tab:'tj-news-tab',scope:'tj-news-scope',impact:'tj-news-imp2'}[k],v);}catch(e){}render();setTimeout(()=>jump('sec-news'),20);}
 function newsSection(){
   const pairs=newsPairs();const list=newsFiltered(NEWS.tab,NEWS.scope,NEWS.impact);const ccy=[...newsCurrencies()];
   const seg=(k,opts)=>`<div class="seg" role="group">${opts.map(([v,l])=>`<button type="button" class="${NEWS[k]===v?'on':''}" onclick="setNews('${k}','${v}')">${l}</button>`).join('')}</div>`;
   let lastDay='';
   const rows=list.map(e=>{const past=e.t<Date.now()-5*60e3;const soon=!past&&e.t-Date.now()<=(S.settings.newsWindow||30)*60e3;const d=ymd(homeDate(e.t));
     const dayHead=NEWS.tab==='week'&&d!==lastDay?(lastDay=d,`<div class="nw-day">${fmtDay(d)}</div>`):'';
-    const aff=affectedPairs(e.currency);
+    const aff=affectedPairs(e.currency);const pp=NEWS.impact==='Prop'?propPairsFor(e):null;const pw=propWin();
+    const affNote=pp?`<div class="note" style="color:var(--loss);font-weight:700">🚫 No trading ${hhmm(e.t-pw)}–${hhmm(e.t+pw)} on ${pp.map(esc).join(', ')}</div>`:aff.length?`<div class="note">Affects ${aff.map(esc).join(', ')}</div>`:'';
     return dayHead+`<div class="nw-row ${past?'past':''} ${soon?'soon':''}"><div class="nw-time">${hhmm(e.t)}<div class="nw-cd" data-t="${e.t}">${countdown(e.t)}</div></div>
       <span class="nw-ccy">${esc(e.currency)}</span><span class="nw-imp ${esc(e.impact)}" title="${esc(e.impact)} impact"></span>
-      <div class="nw-title"><b>${esc(e.title)}</b>${aff.length?`<div class="note">Affects ${aff.map(esc).join(', ')}</div>`:''}</div>
+      <div class="nw-title"><b>${esc(e.title)}</b>${affNote}</div>
       <div class="nw-fc">${e.forecast?`<span class="note">F</span> ${esc(e.forecast)}`:''}${e.previous?` <span class="note">P</span> ${esc(e.previous)}`:''}</div></div>`;}).join('');
   return `<div class="card" id="sec-news" style="margin-bottom:16px">
     <div class="row" style="justify-content:space-between;margin-bottom:10px"><div><h2 style="margin:0">📅 Economic news</h2><div class="note">${NEWS.scope==='fav'?(ccy.length?`For your pairs (${pairs.slice(0,6).map(esc).join(', ')}${pairs.length>6?'…':''}) · currencies ${ccy.join(', ')}`:'Add favourite pairs (★ in the pair picker) to filter news'):'All currencies'} · times in UTC${S.settings.homeTz>=0?'+':''}${S.settings.homeTz}</div></div>
-      <div class="row">${seg('tab',[['today','Today'],['week','This week']])}${seg('scope',[['fav','My pairs'],['all','All']])}${seg('impact',[['High','High'],['Medium','High + Med']])}</div></div>
+      <div class="row">${seg('tab',[['today','Today'],['week','This week']])}${NEWS.impact==='Prop'?'':seg('scope',[['fav','My pairs'],['all','All']])}${seg('impact',[['Prop','Prop rules'],['High','High'],['Medium','High + Med']])}</div></div>
+    ${NEWS.impact==='Prop'?`<div class="note" style="margin-bottom:10px">Prop firm restricted news for your pairs: don't open or close trades <b>${S.settings.propNewsMin??5} min before to ${S.settings.propNewsMin??5} min after</b> each event. Change the minutes in Settings → Risk rules.</div>`:''}
     ${NEWS.err&&!NEWS.events?`<div class="note">${esc(NEWS.err)} <button type="button" class="linkbtn" onclick="loadNews(true)">Try again</button></div>`
       :!NEWS.events?'<div class="note">Loading news…</div>'
-      :rows||`<div class="empty" style="padding:22px"><b>No ${NEWS.impact==='High'?'high-impact':'high or medium impact'} news ${NEWS.tab==='today'?'today':'this week'}${NEWS.scope==='fav'?' for your pairs':''} ✓</b>${NEWS.tab==='today'?'Check “This week” to plan ahead.':''}</div>`}
+      :rows||`<div class="empty" style="padding:22px"><b>No ${NEWS.impact==='Prop'?'prop firm restricted':NEWS.impact==='High'?'high-impact':'high or medium impact'} news ${NEWS.tab==='today'?'today':'this week'}${NEWS.scope==='fav'?' for your pairs':''} ✓</b>${NEWS.tab==='today'?'Check “This week” to plan ahead.':''}</div>`}
     <div class="note" style="margin-top:8px">Source: Forex Factory calendar (updated hourly). Always double-check times before trading.</div></div>`;
 }
 function newsAlerts(){
   if(!NEWS.events)return [];const w=(S.settings.newsWindow||30)*60e3;const ccy=newsCurrencies();const now=Date.now();
-  return NEWS.events.filter(e=>e.impact==='High'&&ccy.has(e.currency)&&e.t>now-15*60e3&&e.t<now+w).map(e=>{const aff=affectedPairs(e.currency).map(esc).join(', ');
+  const pw=propWin(),prop=hasProp()?NEWS.events.filter(e=>e.t+pw>=now&&e.t-pw-w<=now&&propPairsFor(e).length):[];
+  const propA=prop.map(e=>{const pp=propPairsFor(e).map(esc).join(', ');
+    return now>=e.t-pw?['loss',`🚫 <b>PROP FIRM NEWS — DON'T TRADE ${pp} until ${hhmm(e.t+pw)}.</b> ${esc(e.currency)} ${esc(e.title)} at ${hhmm(e.t)}. Don't open or close prop firm trades now.`]
+      :['warn',`⚠ <b>Prop firm news: ${esc(e.currency)} ${esc(e.title)}</b> at ${hhmm(e.t)} (<span class="nw-cd" data-t="${e.t}">${countdown(e.t)}</span>). No prop firm trading on ${pp} from <b>${hhmm(e.t-pw)} to ${hhmm(e.t+pw)}</b>.`];});
+  return propA.concat(NEWS.events.filter(e=>!prop.includes(e)&&e.impact==='High'&&ccy.has(e.currency)&&e.t>now-15*60e3&&e.t<now+w).map(e=>{const aff=affectedPairs(e.currency).map(esc).join(', ');
     return e.t>now?['warn',`⚠ <b>${esc(e.currency)} ${esc(e.title)}</b> at ${hhmm(e.t)} (<span class="nw-cd" data-t="${e.t}">${countdown(e.t)}</span>). Avoid opening new trades on ${aff} around the release.`]
-      :['info',`📰 <b>${esc(e.currency)} ${esc(e.title)}</b> was released at ${hhmm(e.t)}. Expect volatility on ${aff} — wait for the market to settle.`];});
+      :['info',`📰 <b>${esc(e.currency)} ${esc(e.title)}</b> was released at ${hhmm(e.t)}. Expect volatility on ${aff} — wait for the market to settle.`];}));
 }
 /* high-impact news close to a trade's entry (for the trade form and the "News checked" rule) */
 function newsNearTrade(t,r){
   if(!NEWS.events||!NEWS.events.length||r.tOpen==null)return null;
   const first=NEWS.events[0].t,last=NEWS.events[NEWS.events.length-1].t;if(r.tOpen<first-864e5||r.tOpen>last+864e5)return null; // outside the feed's dates
+  if(isPropTrade(t)){const pw=propWin();return NEWS.events.filter(e=>propNewsFor(e,t.pair)&&(Math.abs(e.t-r.tOpen)<=pw||(r.tClose!=null&&Math.abs(e.t-r.tClose)<=pw)));}
   const w=(S.settings.newsWindow||30)*60e3;const cs=pairCurrencies(t.pair);
   return NEWS.events.filter(e=>e.impact==='High'&&cs.includes(e.currency)&&Math.abs(e.t-r.tOpen)<=w);
 }
-setInterval(()=>{document.querySelectorAll('.nw-cd[data-t]').forEach(el=>{el.textContent=countdown(Number(el.dataset.t));});if(S.view==='dashboard'&&S.ready)loadNews(false);},60e3);
+function newsWindowText(t){return isPropTrade(t)?`prop firm restricted news within ${S.settings.propNewsMin??5} min of entry/exit`:`high-impact news within ${S.settings.newsWindow||30} min of entry`;}
+setInterval(()=>{document.querySelectorAll('.nw-cd[data-t]').forEach(el=>{el.textContent=countdown(Number(el.dataset.t));});if(S.view==='dashboard'&&S.ready)loadNews(false);
+  // redraw the banner when a prop firm no-trade window starts or ends (only when nothing is being edited)
+  const now=Date.now(),pw=propWin(),w=(S.settings.newsWindow||30)*60e3;
+  if(S.view==='dashboard'&&S.ready&&NEWS.events&&hasProp()&&!document.querySelector('.overlay,.dlg')&&!document.activeElement?.matches?.('input,textarea,select')
+    &&NEWS.events.some(e=>[e.t-pw-w,e.t-pw,e.t+pw].some(x=>x<=now&&x>now-60e3)&&propPairsFor(e).length))render();
+},60e3);
 function dashAlerts(){
   const d=todayDiscipline();const a=[...newsAlerts()];
   if(d.n>d.max)a.push(['loss',`You've taken <b>${d.n} trades today on ${esc(d.acct)}</b> — your limit is ${d.max} per account. Trades beyond your limit are usually revenge or FOMO trades. Stop for today.`]);
@@ -1217,7 +1246,7 @@ function tabInfo(t,r){
   const tzs=[];for(let z=-12;z<=14;z++)tzs.push(`<option value="${z}" ${Number(t.tz)===z?'selected':''}>UTC${z>=0?'+':''}${z}</option>`);
   const tn=tradeNumberOfDay(t,r);const lossToday=dayLossBefore(t,r);const myStop=stopOf(t.platform);
   const disc=[];if(tn&&tn>S.settings.maxTrades)disc.push(`This is trade <b>#${tn}</b> today — your limit is ${S.settings.maxTrades}. Extra trades are usually revenge or FOMO trades. Are you sure?`);
-  const nn=newsNearTrade(t,r);if(nn&&nn.length)disc.push(`High-impact news close to this entry: ${nn.map(e=>`<b>${esc(e.currency)} ${esc(e.title)}</b> at ${hhmm(e.t)}`).join(', ')} (within ${S.settings.newsWindow||30} min).`);
+  const nn=newsNearTrade(t,r);if(nn&&nn.length)disc.push(`${isPropTrade(t)?'🚫 <b>Prop firm news rule:</b> this trade was opened or closed':'High-impact news close to this entry:'} ${nn.map(e=>`<b>${esc(e.currency)} ${esc(e.title)}</b> at ${hhmm(e.t)}`).join(', ')} (${newsWindowText(t)}).`);
   if(lossToday!=null&&lossToday>=myStop)disc.push(`This account was already down <b>${lossToday.toFixed(2)}%</b> today before this trade — your daily stop for this account is ${myStop}%. Trading on now breaks your own rule.`);
   return `${disc.map(x=>`<div class="alert loss">${x}</div>`).join('')}${t.manual?`<div class="warn" style="margin-bottom:14px">Imported from your Excel journal. Prices and times weren't recorded, so P&amp;L comes from your account balance and the session is unknown. You can fill in prices if you have them.</div>`:''}<div class="sect">Instrument</div>
   <div class="fg">
@@ -2230,7 +2259,7 @@ function viewSettings(){
     <button class="btn sm primary" style="margin-top:10px" onclick="S.filter.platform='all';editGoals()">Set goals</button>
     <h2 style="margin-top:20px">Risk rules</h2><div class="fg" style="grid-template-columns:repeat(2,1fr)">
       <div class="f"><label>Max trades per day</label><input class="inp" type="number" min="1" value="${s.maxTrades}" onchange="S.settings.maxTrades=num(this.value)||1;saveSettings()"></div>
-      <div class="f"><label>News warning window (minutes)</label><input class="inp" type="number" min="5" step="5" value="${s.newsWindow??30}" onchange="S.settings.newsWindow=num(this.value)||30;saveSettings()"><div class="note">Warn about high-impact news this many minutes before/after.</div></div>
+      <div class="f"><label>News warning window (minutes)</label><input class="inp" type="number" min="5" step="5" value="${s.newsWindow??30}" onchange="S.settings.newsWindow=num(this.value)||30;saveSettings()"><div class="note">Warn about high-impact news this many minutes before/after.</div></div><div class="f"><label>Prop firm news: no trading (minutes before &amp; after)</label><input class="inp" type="number" min="1" step="1" value="${s.propNewsMin??5}" onchange="S.settings.propNewsMin=num(this.value)||5;saveSettings()"><div class="note">Prop firm restricted news: no opening or closing trades this many minutes before and after.</div></div>
       <div class="f"><label>Default daily loss stop (%)</label><input class="inp" type="number" step="any" value="${s.dailyStop??2}" onchange="S.settings.dailyStop=num(this.value)||2;saveSettings()"><div class="note">Used when an account has no stop of its own (set it per account with Edit).</div></div>
       <div class="f"><label>Max risk per trade (%)</label><input class="inp" type="number" step="any" value="${s.maxRisk}" onchange="S.settings.maxRisk=num(this.value)||1;saveSettings()"></div>
       <div class="f"><label>Break-even tolerance (pips)</label><input class="inp" type="number" step="any" value="${s.beTol}" onchange="S.settings.beTol=num(this.value)??0;saveSettings()"></div></div></div>
