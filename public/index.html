@@ -1267,7 +1267,7 @@ function tabInfo(t,r){
   </div>
   <div class="sect">Position</div>
   <div class="fg">
-    ${inp('entry','Entry price')}${inp('lot','Lot size')}${inp('exit','Exit price')}${inp('fees','Commission / fees ($)')}
+    ${inp('entry','Entry price')}${inp('lot','Lot size')}${inp('exit','Exit price')}${inp('fees','Commission / fees ($)'+(M.isNew&&num(S.settings.platforms.find(x=>x.id===t.platform)?.commission)&&!isIndexSym(t.pair)?' · auto if empty':''))}
   </div>
   <div class="sect">Stop loss &amp; take profit</div>
   <div class="fg">
@@ -1320,7 +1320,7 @@ function journeyPath(j,curId){return j.st.map(x=>{const ic=x.s?.status==='Failed
 function nextStage(id){
   const prev=propById(id);if(!prev)return;editAcct(null);const p=window._ae.p;const prog=programOf(prev);const steps=PROGRAMS[prog]?.steps||2;
   const n=(prev.stageNo||1)+1;const funded=prev.stage!=='funded'&&n>steps;
-  Object.assign(p,{type:'prop',prevId:prev.id,_link:'next',balance:prev.balance,dailyDD:prev.dailyDD,dailyMode:prev.dailyMode,maxDD:prev.maxDD,maxMode:prev.maxMode,split:prev.split,dailyStop:prev.dailyStop,
+  Object.assign(p,{type:'prop',prevId:prev.id,_link:'next',balance:prev.balance,dailyDD:prev.dailyDD,dailyMode:prev.dailyMode,maxDD:prev.maxDD,maxMode:prev.maxMode,split:prev.split,dailyStop:prev.dailyStop,commission:prev.commission,
     stage:funded?'funded':'challenge',stageNo:funded?null:n,target:funded?null:prev.target});
   p.name=/stage\s*\d/i.test(prev.name)?prev.name.replace(/stage\s*\d/i,funded?'Funded':'Stage '+n).replace(/\s*·\s*[A-Z][a-z]{2} \d{4}$/,''):prev.name+' · '+(funded?'Funded':'Stage '+n);
   renderAcctEditor();
@@ -1348,7 +1348,7 @@ function aeLink(m){const p=window._ae.p;p._link=m;if(m==='new'){delete p.prevId;
 function aeProg(v){const p=window._ae.p;p.program=v;if(v==='instant'){p.stage='funded';p.stageNo=null;}else{p.stage='challenge';p.stageNo=1;if(p.target==null)p.target=8;}renderAcctEditor();}
 function aePrev(id){const p=window._ae.p;if(!id){delete p.prevId;renderAcctEditor();return;}const prev=propById(id);p.prevId=id;const steps=PROGRAMS[programOf(prev)]?.steps||2;const n=(prev.stageNo||1)+1;
   if(prev.stage==='funded'||n>steps){p.stage='funded';p.stageNo=null;}else{p.stage='challenge';p.stageNo=n;}
-  if(window._ae.isNew){['balance','dailyDD','dailyMode','maxDD','maxMode','split','dailyStop'].forEach(k=>{if(prev[k]!=null)p[k]=prev[k];});if(p.stage==='challenge'&&prev.target!=null)p.target=prev.target;}
+  if(window._ae.isNew){['balance','dailyDD','dailyMode','maxDD','maxMode','split','dailyStop','commission'].forEach(k=>{if(prev[k]!=null)p[k]=prev[k];});if(p.stage==='challenge'&&prev.target!=null)p.target=prev.target;}
   renderAcctEditor();}
 function aeStage(v){const p=window._ae.p;if(v==='funded'){p.stage='funded';p.stageNo=null;}else{p.stage='challenge';p.stageNo=Number(v);if(p.target==null)p.target=8;}renderAcctEditor();}
 function renderAcctEditor(){
@@ -1365,6 +1365,7 @@ function renderAcctEditor(){
       <div class="f span2"><label for="ae_name">Account name</label><input id="ae_name" class="inp" placeholder="e.g. FTMO 100k Stage 2" value="${esc(p.name)}" onchange="aeSet('name',this.value)"></div>
       <div class="f"><label for="ae_type">Account type</label><select id="ae_type" class="sel" onchange="aeSet('type',this.value,true)">${Object.entries(ACCT_TYPES).map(([k,l])=>`<option value="${k}" ${p.type===k?'selected':''}>${l}</option>`).join('')}</select></div>
       <div class="f"><label for="ae_bal">Starting balance${prop?'':' (optional)'}</label><input id="ae_bal" class="inp" type="number" step="any" value="${p.balance??''}" onchange="aeSet('balance',num(this.value),true)"></div>
+      <div class="f span2"><label for="ae_comm">Commission per lot, round trip (${esc(S.settings.currency||'$')})</label><input id="ae_comm" class="inp" type="number" step="any" min="0" placeholder="e.g. 5" value="${p.commission??''}" onchange="aeSet('commission',num(this.value))"><div class="note">Filled in automatically on new trades (lot size × this). Indices (US30, NAS100…) are commission-free. Example: $2.50 each way = $5.</div></div>
       <div class="f span2"><label for="ae_stop">My daily loss stop (%)</label><input id="ae_stop" class="inp" type="number" step="any" min="0" placeholder="Default: ${num(S.settings.dailyStop)??2}%" value="${p.dailyStop??''}" onchange="aeSet('dailyStop',num(this.value))"><div class="note">Your own limit for this account. When you lose this much in a day, the journal tells you to stop${prop?' — you can keep it tighter than the firm\'s daily drawdown':''}.</div></div>
     </div>
     ${!prop?`<div class="note" style="margin-top:10px">Tip: record deposits and withdrawals in the Money tab to keep this balance in sync with your broker.</div>`:''}
@@ -1569,6 +1570,10 @@ function tabReview(t,r){
   <textarea class="inp" style="margin-top:10px" aria-label="Mistake notes" placeholder="Notes on what went wrong (optional)" onchange="set('mistakeNote',this.value,false)">${esc(t.mistakeNote)}</textarea>
   <div class="sect">Rate this trade</div><div class="rate">${rate}</div>`;
 }
+// account commission ($ per lot, round trip) for a trade; indices are commission-free
+function isIndexSym(s){return ['US30','NAS100','SPX500','GER40','UK100'].includes(s)||/^(US|NAS|SPX|GER|DE|UK|JP|HK|AUS|FRA|EU|STOXX)\d/i.test(s||'');}
+function autoCommission(t){const rate=num(S.settings.platforms.find(x=>x.id===t.platform)?.commission);const lot=num(t.lot);
+  if(!rate||lot==null||t.manual||isIndexSym(t.pair))return null;return Math.round(rate*lot*100)/100;}
 async function commitTrade(){
   const t=M.t;
   // capture focused unsaved input
@@ -1578,6 +1583,7 @@ async function commitTrade(){
   else{if(num(t.entry)==null)miss.push('entry price');if(num(t.lot)==null)miss.push('lot size');if(num(t.sl0)==null)miss.push('initial SL');}
   if(miss.length){M.tab='info';renderModalBody();toast('Please add: '+miss.join(', '));return;}
   if(t.exit!==''&&!t.exitAt){M.tab='info';renderModalBody();toast('Add the exit date & time for a closed trade');return;}
+  if(M.isNew&&String(t.fees??'').trim()===''){const ac=autoCommission(t);if(ac)t.fees=String(ac);} // new trades only, so history isn't changed
   try{await saveTrade(t);try{localStorage.setItem('tj-lastacct',t.platform);}catch(e){}toast(M.isNew?'Trade saved':'Trade updated');closeModal(true);}catch(e){}
 }
 async function removeTrade(){if(!await askConfirm('Delete trade?','This trade will be removed permanently.','Delete',true))return;await deleteTrade(M.t.id);toast('Trade deleted');closeModal(true);}
@@ -1773,6 +1779,35 @@ function calMove(d){const c=S.calMonth;let m=c.m+d,y=c.y;if(m<0){m=11;y--;}if(m>
 /* ---------------- insights ---------------- */
 function groupStats(list,keyFn){const g={};list.forEach(z=>{[].concat(keyFn(z)).forEach(k=>{if(k==null||k==='')return;(g[k]=g[k]||[]).push(z);});});return Object.entries(g).map(([k,arr])=>({k,...stats(arr)}));}
 const DUR=[['< 15 min',0,15],['15–60 min',15,60],['1–4 h',60,240],['4–24 h',240,1440],['> 1 day',1440,1e9]];
+/* what each mistake cost: losses on trades with it + profit taken away (e.g. trade cancelled by the prop firm) */
+function mistakeCostCard(c){
+  const rows=groupStats(c,z=>z.t.mistakes||[]).map(g=>{const arr=c.filter(z=>(z.t.mistakes||[]).includes(g.k));
+    const lost=-sumBy(arr.filter(z=>z.r.pnl<0),z=>z.r.pnl),removed=sumBy(arr,z=>num(z.t.pnlOverride)!=null&&z.r.calcPnl!=null&&z.r.calcPnl>z.r.pnl?z.r.calcPnl-z.r.pnl:0);
+    return {k:g.k,n:arr.length,lost,removed,cost:lost+removed};}).filter(r=>r.n).sort((a,b)=>b.cost-a.cost);
+  const total=sumBy(rows,r=>r.cost);
+  return `<div class="card" style="margin-top:16px"><h2>What your mistakes cost you</h2><div class="sub" style="margin:-6px 0 12px">Money lost on trades where you tagged a mistake, plus profit that was taken away (like trades cancelled by the prop firm). Fix the top one first.</div>
+    ${rows.length?`${rows[0].cost>0?`<div class="alert loss" style="margin-bottom:12px">Your most expensive mistake is <b>${esc(rows[0].k)}</b>: it cost you <b>${money(rows[0].cost,false)}</b> over ${rows[0].n} trade${rows[0].n>1?'s':''}.${total>rows[0].cost?` All mistakes together: <b>${money(total,false)}</b>.`:''}</div>`:''}
+    <div class="tablewrap"><table><thead><tr><th>Mistake</th><th class="num">Trades</th><th class="num">Lost on losing trades</th><th class="num">Profit taken away</th><th class="num">Total cost</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr style="cursor:default"><td><b>${esc(r.k)}</b></td><td class="num">${r.n}</td><td class="num ${r.lost?'neg':''}">${r.lost?money(r.lost,false):'—'}</td><td class="num ${r.removed?'neg':''}">${r.removed?money(r.removed,false):'—'}</td><td class="num ${r.cost?'neg':''}"><b>${money(r.cost,false)}</b></td></tr>`).join('')}</tbody></table></div>`
+    :'<div class="note">No mistakes tagged in this period. Tag them in each trade\'s Review tab to see what they cost.</div>'}</div>`;
+}
+/* plain-language breakdown: where you make money and where you lose it */
+function whatWorksCard(c){
+  const DOW=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const MIN=5;const verdict=g=>g.n<MIN?['note',`Too few trades yet (${g.n} of ${MIN})`]:g.pnl/g.n>0?['pos','✅ Making money — keep doing this']:['neg','❌ Losing money — fix it or stop'];
+  const sec=(title,groups)=>groups.length?`<tr class="nw-day"><td colspan="5"><b>${title}</b></td></tr>`+groups.sort((a,b)=>b.pnl/b.n-a.pnl/a.n).map(g=>{const [vc,vt]=verdict(g);
+    return `<tr style="cursor:default"><td><b>${esc(g.k)}</b></td><td class="num">${g.n}</td><td class="num">${pct(g.winRate)}</td><td class="num ${cls(g.pnl/g.n)}"><b>${money(g.pnl/g.n)}</b></td><td class="${vc}">${vt}</td></tr>`;}).join(''):'';
+  const st=stats(c);const avgTrade=c.length?st.pnl/c.length:null;
+  return `<div class="card" style="margin-top:16px"><h2>What's working — and what isn't</h2>
+    <div class="sub" style="margin:-6px 0 12px"><b>Average per trade</b> = total profit ÷ number of trades. If it's <b class="pos">positive</b>, that thing makes you money over time — even if you lose some trades. If it's <b class="neg">negative</b>, you lose money doing it, even with a good win rate.</div>
+    <div class="grid g3" style="margin-bottom:12px">
+      <div class="stat"><div class="l">Average per trade</div><div class="v ${cls(avgTrade)}">${money(avgTrade)}</div><div class="s">Each trade you take ${avgTrade>0?'makes':'costs'} you this on average</div></div>
+      <div class="stat"><div class="l">When you win</div><div class="v pos">${money(st.avgW,false)}</div><div class="s">average winning trade</div></div>
+      <div class="stat"><div class="l">When you lose</div><div class="v neg">${money(st.avgL!=null?Math.abs(st.avgL):null,false)}</div><div class="s">average losing trade${st.avgW&&st.avgL?` · wins are ${(st.avgW/Math.abs(st.avgL)).toFixed(1)}× your losses`:''}</div></div></div>
+    <div class="tablewrap"><table><thead><tr><th>What</th><th class="num">Trades</th><th class="num">Win rate</th><th class="num">Average per trade</th><th>Verdict</th></tr></thead><tbody>
+    ${sec('Setups',groupStats(c,z=>z.t.setups||[]))}${sec('Pairs',groupStats(c,z=>z.t.pair))}${sec('Sessions',groupStats(c,z=>z.r.session))}${sec('Days',groupStats(c,z=>z.r.day?DOW[new Date(z.r.day+'T00:00:00Z').getUTCDay()]:null))}
+    </tbody></table></div><div class="note" style="margin-top:8px">Verdicts need at least ${MIN} trades — fewer than that is mostly luck.</div></div>`;
+}
 function viewInsights(embed){
   const list=filtered();const c=list.filter(z=>z.r.closed&&z.r.pnl!=null);const st=stats(list);const sk=streaks(list);
   if(!c.length)return embed?'':`<div class="topbar"><div><h1>Insights</h1></div>${filterBar()}</div>${emptyBox('No closed trades in this period','Insights appear once you have closed trades. Try “All time” in the timeframe filter.')}`;
@@ -1819,6 +1854,7 @@ function viewInsights(embed){
   <div class="card" style="margin-top:16px"><h2>Performance by pair</h2><div class="tablewrap"><table><thead><tr><th>Pair</th><th class="num">Trades</th><th class="num">Win rate</th><th class="num">Profit factor</th><th class="num">Avg R</th><th class="num">Total P&amp;L</th></tr></thead><tbody>
     ${pairs.map(p=>`<tr><td><b>${esc(p.k)}</b></td><td class="num">${p.n}</td><td class="num">${pct(p.winRate)}</td><td class="num">${pfText(p.pf)}</td><td class="num">${p.avgR!=null?p.avgR.toFixed(2)+'R':'—'}</td><td class="num ${cls(p.pnl)}"><b>${money(p.pnl)}</b></td></tr>`).join('')}
   </tbody></table></div></div>
+  ${mistakeCostCard(c)}${whatWorksCard(c)}
   <div class="card" style="margin-top:16px"><div class="row" style="justify-content:space-between"><div><h2 style="margin:0">AI coach</h2><div class="sub">Chat with Claude about your trading. It can see your whole journal — trades, notes, rules and accounts.</div></div>
     <div class="row"><button class="btn" onclick="openCoach()">Open chat</button><button class="btn primary" onclick="openCoach(coachReviewPrompt())">Review this period</button></div></div></div>`;
 }
@@ -1969,8 +2005,9 @@ function viewMoney(){
   const stillIn=sumBy(accts.filter(p=>acctType(p)==='personal'),p=>(num(p.balance)||0)+sumBy(acctEvents(p.id),e=>e.d));
   const allGot=sumBy(allCs,cashGot);const net=allGot+stillIn-allSpent;
   // month-by-month calendar: invested vs profit taken
-  const months={};cs.forEach(c=>{const m=String(c.date).slice(0,7);(months[m]=months[m]||{spent:0,got:0});months[m].spent+=cashSpent(c);months[m].got+=cashGot(c);});
+  const months={};allCs.forEach(c=>{const m=String(c.date).slice(0,7);(months[m]=months[m]||{spent:0,got:0});months[m].spent+=cashSpent(c);months[m].got+=cashGot(c);});
   const calYears=[...new Set(Object.keys(months).map(m=>m.slice(0,4)))].sort().reverse();
+  const cy=calYears.includes(S.calYear)?S.calYear:calYears[0];
   const mname=i=>new Date(Date.UTC(2000,i,1)).toLocaleDateString(undefined,{month:'short',timeZone:'UTC'});
   // breaches: each failed/breached prop challenge, and each personal top-up after losing the balance
   const failedJ=journeys().filter(j=>(j.status==='Failed'||j.status.includes('breached'))&&(pid==='all'||j.chain.some(x=>x.id===pid))).map(j=>({j,start:journeyStart(j)})).sort((a,b)=>b.start.localeCompare(a.start));
@@ -1978,6 +2015,16 @@ function viewMoney(){
   const persRows=accts.filter(p=>acctType(p)==='personal').map(p=>{const c=cashList(p.id);const dep=c.filter(x=>x.type==='deposit');const bal=(num(p.balance)||0)+sumBy(acctEvents(p.id),e=>e.d);
     return {p,n:dep.length,lost:Math.max(0,(num(p.balance)||0)+sumBy(dep,x=>num(x.amount))-sumBy(c.filter(x=>x.type==='withdrawal'),x=>num(x.amount))-Math.max(0,bal))};}).filter(r=>r.n);
   const persLost=sumBy(persRows,r=>r.lost),persN=sumBy(persRows,r=>r.n),breachN=failedJ.length+persN;
+  // selected calendar year summary
+  const ys=(()=>{if(!cy)return null;const ms=Object.keys(months).filter(m=>m.startsWith(cy));const inv=sumBy(ms,m=>months[m].spent),tk=sumBy(ms,m=>months[m].got);
+    const best=ms.filter(m=>months[m].got>0).sort((a,b)=>months[b].got-months[a].got)[0];
+    const br=failedJ.filter(x=>x.start.startsWith(cy)).length+allCs.filter(c=>c.type==='deposit'&&String(c.date).startsWith(cy)&&acctType(S.settings.platforms.find(p=>p.id===c.platform))==='personal').length;
+    return {inv,tk,net:tk-inv,roi:inv?(tk-inv)/inv*100:null,best,br};})();
+  // ROI by prop journey and where profit came from
+  const roiTxt=(net,inv)=>inv?`<span class="${cls(net)}">${(net/inv*100>0?'+':'')+(net/inv*100).toFixed(0)}%</span>`:'—';
+  const srcRows=Object.values(allCs.filter(c=>cashGot(c)>0).reduce((g,c)=>{const p=S.settings.platforms.find(x=>x.id===c.platform);const j=p?.type==='prop'?journeys().find(j=>j.chain.some(x=>x.id===p.id)):null;
+    const k=c.platform;(g[k]=g[k]||{p,j,amt:0,n:0,last:''});g[k].amt+=cashGot(c);g[k].n++;if(c.date>g[k].last)g[k].last=c.date;return g;},{})).sort((a,b)=>b.amt-a.amt);
+  const srcTotal=sumBy(srcRows,r=>r.amt);
   const yrs={};[...enriched().filter(z=>(pid==='all'||z.t.platform===pid)&&realPnlAcct(z.t.platform)&&z.r.closed&&z.r.pnl!=null&&z.r.day),].forEach(z=>{const y=z.r.day.slice(0,4);(yrs[y]=yrs[y]||{pnl:0,spent:0,got:0}).pnl+=z.r.pnl;});
   allCs.forEach(c=>{const y=String(c.date).slice(0,4);(yrs[y]=yrs[y]||{pnl:0,spent:0,got:0});yrs[y].spent+=cashSpent(c);yrs[y].got+=cashGot(c);});
   const acRows=S.settings.platforms.map(p=>{const c=cashList(p.id);const ev=acctEvents(p.id);const ps=propStatus(p);
@@ -2000,15 +2047,26 @@ function viewMoney(){
     <div class="grid g2"><div><h3 style="margin:0 0 6px">Prop firm · ${failedJ.length} failed · ${money(propLost,false)}</h3>${failedJ.length?`<div class="tablewrap"><table><thead><tr><th>Challenge</th><th>Started</th><th class="num">Fee lost</th></tr></thead><tbody>${failedJ.map(x=>`<tr style="cursor:default"><td><b>${esc(x.j.root.name)}</b></td><td>${esc(x.start||'—')}</td><td class="num neg">${money(x.j.fee,false)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="note">No failed challenges.</div>'}</div>
     <div><h3 style="margin:0 0 6px">Personal · ${persN} top-up${persN===1?'':'s'} · ${money(persLost,false)} lost</h3>${persRows.length?`<div class="tablewrap"><table><thead><tr><th>Account</th><th class="num">Deposits</th><th class="num">Money lost</th></tr></thead><tbody>${persRows.map(r=>`<tr style="cursor:default"><td><b>${esc(r.p.name)}</b></td><td class="num">${r.n}</td><td class="num ${r.lost?'neg':''}">${money(r.lost,false)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="note">No personal deposits.</div>'}</div></div>
     <div class="note" style="margin-top:8px">Money lost on personal accounts = starting balance + deposits − withdrawals − balance left now.</div></div>`:''}
-  ${calYears.length?`<div class="card" style="margin-top:16px"><h2>Month by month</h2><div class="note" style="margin:-6px 0 10px">Amount invested and profit taken each month.</div>
-    ${calYears.map(y=>`<h3 style="margin:12px 0 8px">${y}</h3><div class="mcal">${Array.from({length:12},(_,i)=>{const r=months[y+'-'+pad(i+1)];return `<div class="mcell ${r?(r.got>r.spent?'w':r.spent?'l':''):'empty'}"><div class="mn">${mname(i)}</div>${r?`<div class="mrow"><span>Invested</span><b>${r.spent?money(r.spent,false):'—'}</b></div><div class="mrow"><span>Profit taken</span><b class="${r.got?'pos':''}">${r.got?money(r.got,false):'—'}</b></div>`:''}</div>`;}).join('')}</div>`).join('')}</div>`:''}
+  ${srcRows.length?`<div class="card" style="margin-top:16px"><h2>Where your profit came from</h2><div class="note" style="margin:-6px 0 10px">Every dollar of profit taken, traced back to the account (and prop journey) that made it.</div>
+    <div class="tablewrap"><table><thead><tr><th>Account</th><th>Journey</th><th class="num">Payouts</th><th>Last one</th><th class="num">Profit taken</th><th class="num">Share</th></tr></thead><tbody>
+    ${srcRows.map(r=>`<tr style="cursor:default"><td><b>${esc(r.p?.name||'Unknown')}</b></td><td>${r.j?esc(r.j.root.name):'—'}</td><td class="num">${r.n}</td><td>${esc(r.last)}</td><td class="num pos"><b>${money(r.amt,false)}</b></td><td class="num">${(r.amt/srcTotal*100).toFixed(0)}%</td></tr>`).join('')}</tbody></table></div></div>`:''}
+  ${cy?`<div class="card" style="margin-top:16px"><div class="row" style="justify-content:space-between;align-items:center"><div><h2 style="margin:0">Month by month</h2><div class="note">Amount invested and profit taken each month.</div></div>
+    <div class="row" style="gap:6px;align-items:center"><button class="btn sm" aria-label="Previous year" ${calYears.indexOf(cy)<calYears.length-1?'':'disabled'} onclick="S.calYear='${calYears[calYears.indexOf(cy)+1]||cy}';render()">◀</button><b style="min-width:52px;text-align:center;font-size:18px">${cy}</b><button class="btn sm" aria-label="Next year" ${calYears.indexOf(cy)>0?'':'disabled'} onclick="S.calYear='${calYears[calYears.indexOf(cy)-1]||cy}';render()">▶</button></div></div>
+    <div class="grid g4" style="margin:12px 0">
+      <div class="stat"><div class="l">Invested in ${cy}</div><div class="v">${money(ys.inv,false)}</div></div>
+      <div class="stat"><div class="l">Profit taken in ${cy}</div><div class="v pos">${money(ys.tk,false)}</div>${ys.best?`<div class="s">Best month: ${new Date(ys.best+'-01T00:00:00Z').toLocaleDateString(undefined,{month:'long',timeZone:'UTC'})}</div>`:''}</div>
+      <div class="stat"><div class="l">Net for ${cy}</div><div class="v ${cls(ys.net)}">${money(ys.net)}</div><div class="s">ROI ${ys.roi==null?'—':(ys.roi>0?'+':'')+ys.roi.toFixed(1)+'%'}</div></div>
+      <div class="stat"><div class="l">Breaches in ${cy}</div><div class="v ${ys.br?'neg':''}">${ys.br}</div><div class="s">failed challenges + personal top-ups</div></div></div>
+    ${[cy].map(y=>`<div class="mcal">${Array.from({length:12},(_,i)=>{const r=months[y+'-'+pad(i+1)];return `<div class="mcell ${r?(r.got>r.spent?'w':r.spent?'l':''):'empty'}"><div class="mn">${mname(i)}</div>${r?`<div class="mrow"><span>Invested</span><b>${r.spent?money(r.spent,false):'—'}</b></div><div class="mrow"><span>Profit taken</span><b class="${r.got?'pos':''}">${r.got?money(r.got,false):'—'}</b></div>`:''}</div>`;}).join('')}</div>`).join('')}</div>`:''}
   ${journeys().length&&pid==='all'?`<div class="card" style="margin-top:16px"><h2>Prop firm journeys</h2><div class="note" style="margin:-6px 0 10px">Each challenge from purchase to funded, with the fee you paid and what it gave back.</div>
-    <div class="tablewrap"><table><thead><tr><th>Journey</th><th>Stages</th><th>Status</th><th class="num">Fee paid</th><th class="num">You received</th><th class="num">Net result</th></tr></thead><tbody>
-    ${journeys().map(j=>({j,s:journeyStart(j)})).sort((a,b)=>b.s.localeCompare(a.s)).map(({j})=>`<tr style="cursor:default"><td><b>${esc(j.root.name)}</b><div class="note">${PROGRAMS[j.prog]?.label||''}</div></td><td>${journeyPath(j)}</td><td><span class="pill ${j.status.startsWith('Funded')&&!j.status.includes('breached')?'Long':j.status==='Failed'||j.status.includes('breached')?'Loss':j.status.startsWith('Passed')?'Win':'Open'}">${j.status}</span></td><td class="num">${money(j.fee,false)}</td><td class="num">${money(j.got,false)}</td><td class="num ${cls(j.net)}"><b>${money(j.net)}</b></td></tr>`).join('')}
+    <div class="tablewrap"><table><thead><tr><th>Journey</th><th>Stages</th><th>Status</th><th class="num">Fee paid</th><th class="num">You received</th><th class="num">Net result</th><th class="num">ROI</th></tr></thead><tbody>
+    ${journeys().map(j=>({j,s:journeyStart(j)})).sort((a,b)=>b.s.localeCompare(a.s)).map(({j})=>`<tr style="cursor:default"><td><b>${esc(j.root.name)}</b><div class="note">${PROGRAMS[j.prog]?.label||''}</div></td><td>${journeyPath(j)}</td><td><span class="pill ${j.status.startsWith('Funded')&&!j.status.includes('breached')?'Long':j.status==='Failed'||j.status.includes('breached')?'Loss':j.status.startsWith('Passed')?'Win':'Open'}">${j.status}</span></td><td class="num">${money(j.fee,false)}</td><td class="num">${money(j.got,false)}</td><td class="num ${cls(j.net)}"><b>${money(j.net)}</b></td><td class="num"><b>${roiTxt(j.net,j.fee)}</b></td></tr>`).join('')}
     </tbody></table></div><div class="note" style="margin-top:8px">Tip: record the challenge fee on the first stage of each journey, and payouts / fee refunds on the funded account.</div></div>`:''}
-  <div class="card" style="margin-top:16px"><h2>By account</h2><div class="tablewrap"><table><thead><tr><th>Account</th><th>Type</th><th class="num">Invested</th><th class="num">Profit taken</th><th class="num">Balance now</th></tr></thead><tbody>
-    ${acRows.map(r=>`<tr style="cursor:default"><td><b>${esc(r.p.name)}</b>${r.status?` <span class="pill ${({Passed:'Win',Failed:'Loss',Active:'Open',Funded:'Long'})[r.status]}">${r.status}</span>`:''}</td><td>${acctLabel(r.p)}</td><td class="num">${money(r.spent,false)}</td><td class="num">${money(r.got,false)}</td><td class="num">${money(r.bal,false)}</td></tr>`).join('')}</tbody></table></div>
-    <div class="note" style="margin-top:8px">Personal accounts: invested includes the starting balance plus deposits. Prop accounts: invested is the challenge fee; profit taken is your share of payouts. Paper accounts are not counted as real money.</div></div>
+  <div class="card" style="margin-top:16px"><h2>By account</h2><div class="tablewrap"><table><thead><tr><th>Account</th><th>Type</th><th class="num">Invested</th><th class="num">Profit taken</th><th class="num">Balance now</th><th class="num">Net</th><th class="num">ROI</th></tr></thead><tbody>
+    ${acRows.map(r=>{const t=acctType(r.p);const net=t==='personal'?r.got+Math.max(0,r.bal)-r.spent:null;
+      return `<tr style="cursor:default"><td><b>${esc(r.p.name)}</b>${r.status?` <span class="pill ${({Passed:'Win',Failed:'Loss',Active:'Open',Funded:'Long'})[r.status]}">${r.status}</span>`:''}</td><td>${acctLabel(r.p)}</td><td class="num">${money(r.spent,false)}</td><td class="num">${money(r.got,false)}</td><td class="num">${money(r.bal,false)}</td>
+      <td class="num ${cls(net)}">${net==null?(t==='prop'?'<span class="note" title="Fee and payouts sit on different stages — see Prop firm journeys">journey ↑</span>':'—'):money(net)}</td><td class="num">${net==null?'—':roiTxt(net,r.spent)}</td></tr>`;}).join('')}</tbody></table></div>
+    <div class="note" style="margin-top:8px">Personal accounts: invested includes the starting balance plus deposits; net = profit taken + balance left − invested. Prop accounts: the fee is on the first stage and payouts on the funded stage, so their ROI is shown per journey above. Paper accounts are not counted as real money.</div></div>
   <div class="card" style="margin-top:16px"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Transactions</h2><button class="btn sm" onclick="editCash()">+ Add</button></div>
     ${cs.length?`<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Date</th><th>Account</th><th>Type</th><th class="num">Amount</th><th class="num">You received</th><th>Note</th></tr></thead><tbody>
     ${cs.slice().reverse().map(c=>`<tr onclick="editCash('${c.id}')"><td>${esc(c.date)}</td><td>${esc(S.settings.platforms.find(p=>p.id===c.platform)?.name||'Unknown')}</td><td><span class="pill ${CASH[c.type].spent?'Open':'Win'}">${CASH[c.type].label}</span></td><td class="num"><b>${c.type==='adjust'?money(num(c.amount)):money(num(c.amount),false)}</b></td><td class="num">${cashGot(c)?money(cashGot(c),false):'—'}</td><td>${esc(c.note||'')}</td></tr>`).join('')}</tbody></table></div>`
