@@ -266,6 +266,8 @@ td.num,th.num{text-align:right}
 .cell.l{background:var(--loss-soft);border-color:transparent}
 .cell.wk{background:var(--surface2)}
 .cell .short{display:none}
+.wwhead .wwsign{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:6px;background:var(--accent-soft);color:var(--accent);font-weight:800;margin-right:4px}
+tr[hidden]{display:none}
 .cell .pc{font-size:11px;font-weight:700;line-height:1.1}
 .pctsm{font-size:.62em;font-weight:700;margin-left:6px;opacity:.85;white-space:nowrap}
 .wlb .pctsm{font-size:.75em;margin-left:2px}
@@ -490,7 +492,8 @@ const DEFAULT_SETTINGS={
   mistakes:['Moved SL','Early exit','Late entry','FOMO entry','Oversized','Overtrading','Ignored plan','No confirmation','Revenge trade']
 };
 const S={settings:structuredClone(DEFAULT_SETTINGS),trades:{},cash:{},weeks:{},weekSel:null,moneyYear:'all',view:'dashboard',
-  filter:{range:'month',from:'',to:'',platform:'all'},_ver:0,calMonth:null,logSort:{k:'tOpen',d:-1},logQ:'',ready:false,mode:'local'};
+  // time period + account: remembered on this device (last choice), default This month · all accounts
+  filter:(()=>{try{const f=JSON.parse(localStorage.getItem('tj-filter')||'null');if(f&&f.range)return {range:f.range,from:f.from||'',to:f.to||'',platform:f.platform||'all'};}catch(e){}return {range:'month',from:'',to:'',platform:'all'};})(),_ver:0,calMonth:null,logSort:{k:'tOpen',d:-1},logQ:'',ready:false,mode:'local'};
 let DB=null,COL=null,ASSETS=null,DL=null,SAMPLE=null;
 const charts={};
 
@@ -786,6 +789,8 @@ async function logout(){try{await api('/api/auth/logout',{method:'POST',authCall
 function navHTML(mob){return NAV.map(([k,l,i])=>`<button class="${mob?'':'navbtn '}${S.view===k?'on':''}" data-nav="${k}">${IC[i]}<span>${l}</span></button>`).join('');}
 function render(){
   S._ver++;
+  if(S.ready&&S.filter.platform!=='all'&&!S.settings.platforms.some(p=>p.id===S.filter.platform))S.filter.platform='all'; // remembered account was deleted
+  try{localStorage.setItem('tj-filter',JSON.stringify(S.filter));}catch(e){}
   $('#sidenav').innerHTML=`<div class="brand"><span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" style="stroke:var(--surface)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l5-6 4 4 7-9"/></svg></span>Trade Journal</div>${navHTML()}<div class="side-foot"><div class="row" style="justify-content:space-between;margin-bottom:12px"><span style="font-weight:700;color:#fff">${isDark()?'Dark':'Light'} mode</span>${themeSwitch()}</div>${S.user?`<div style="color:#fff;font-weight:700;overflow:hidden;text-overflow:ellipsis">${esc(S.user.name||S.user.email)}</div><div style="overflow:hidden;text-overflow:ellipsis">${esc(S.user.email)}</div><button type="button" class="linkbtn" style="color:#c4b5fd;margin-top:6px" onclick="logout()">Log out</button>`:''}</div>`;
   $('#themeFab').innerHTML=isDark()?SUN:MOON;$('#themeFab').setAttribute('aria-label','Switch to '+(isDark()?'light':'dark')+' mode');
   $('#mobnav').innerHTML=navHTML(true);
@@ -902,8 +907,8 @@ function setNews(k,v){NEWS[k]=v;try{localStorage.setItem({tab:'tj-news-tab',scop
 /* ---------- daily journal: plan before trading, review after (stored inside that week's note) ---------- */
 const DAY_MOODS=()=>[...new Set([...(S.settings.emotions||[]),'Tired','Excited','Overconfident','Bored'])];
 function getDay(d){return S.weeks[weekOf(d)]?.days?.[d]||null;}
-function dayHasNote(n){return !!n&&!!(n.plan||n.zones||n.lessons||n.followed||n.outside||n.rating||(n.moodBefore||[]).length||(n.moodAfter||[]).length);}
-function openDay(d){const ex=getDay(d);window._day={d,n:ex?clean(ex):{date:d,plan:'',zones:'',moodBefore:[],moodAfter:[],followed:'',outside:'',rating:0,lessons:''}};renderDayDlg();}
+function dayHasNote(n){return !!n&&!!(n.plan||n.zones||n.lessons||n.good||n.bad||n.followed||n.outside||n.rating||(n.moodBefore||[]).length||(n.moodAfter||[]).length);}
+function openDay(d){const ex=getDay(d);window._day={d,n:ex?clean(ex):{date:d,plan:'',moodBefore:[],moodAfter:[],followed:'',outside:'',rating:0,good:'',bad:''}};renderDayDlg();}
 function dSet(k,v,re){window._day.n[k]=v;if(re)renderDayDlg();}
 function dToggle(k,v){const a=window._day.n[k]=window._day.n[k]||[];const i=a.indexOf(v);if(i>=0)a.splice(i,1);else a.push(v);renderDayDlg();}
 function renderDayDlg(){
@@ -917,14 +922,15 @@ function renderDayDlg(){
     <div class="dlg-b">
     <div class="sect" style="margin-top:4px;border-top:0;padding-top:0">Before trading</div>
     <div class="f"><label>Today's plan &amp; bias</label>${ta('plan','e.g. Gold bullish above 4020. Only buy from my zone after confirmation. Max 2 trades.')}</div>
-    <div class="f"><label>Zones / levels I marked</label>${ta('zones','e.g. XAUUSD buy zone 4015–4020, sell zone 4075')}</div>
     <div class="f"><label>How I feel before trading</label>${chips('moodBefore')}</div>
     <div class="sect">After trading</div>
     <div class="f"><label>Did I follow my plan?</label>${seg('followed',[['Yes','✅ Yes'],['Partly','➖ Partly'],['No','❌ No']])}</div>
     <div class="f"><label>Did I take trades outside my plan / zones?</label>${seg('outside',[['No','No'],['Yes','Yes']])}</div>
     <div class="f"><label>How I feel at the end of the day</label>${chips('moodAfter')}</div>
     <div class="f"><label>Rate my day (discipline, not profit)</label><div class="row" style="gap:4px">${[1,2,3,4,5].map(i=>`<button type="button" class="chip ${n.rating>=i?'on':''}" style="font-size:18px" onclick="dSet('rating',window._day.n.rating===${i}?0:${i},true)">★</button>`).join('')}</div></div>
-    <div class="f"><label>Lessons / what I'll do differently</label>${ta('lessons','e.g. I entered before my zone because of FOMO. Next time: set an alert and wait.')}</div>
+    <div class="f"><label>✅ What I did well today</label>${ta('good','e.g. Waited for my zone and confirmation. Stopped after 2 trades.')}</div>
+    <div class="f"><label>❌ What I did badly today</label>${ta('bad','e.g. Entered before my zone because of FOMO. Moved my stop loss.')}</div>
+    ${n.lessons||n.zones?`<div class="note" style="margin-top:6px">Earlier notes: ${esc([n.zones,n.lessons].filter(Boolean).join(' · '))}</div>`:''}
     </div>
     <div class="dlg-f"><button class="btn" onclick="dlgClose(null)">Cancel</button><button class="btn primary" onclick="saveDay()">Save day</button></div>`,true);
 }
@@ -936,9 +942,9 @@ async function saveDay(){
 function todayCard(){
   const d=ymd(nowHome());const n=getDay(d);
   if(!dayHasNote(n))return `<div class="card daycard" style="margin-bottom:16px"><div class="row" style="justify-content:space-between;align-items:center"><div><h2 style="margin:0">📝 Today's plan</h2><div class="note">Write your plan, zones and mood before you trade — then review your day after.</div></div><button class="btn primary" onclick="openDay('${d}')">Plan my day</button></div></div>`;
-  const done=n.followed||n.lessons||n.rating;
+  const done=n.followed||n.good||n.bad||n.lessons||n.rating;
   return `<div class="card daycard" style="margin-bottom:16px"><div class="row" style="justify-content:space-between;align-items:flex-start"><div style="min-width:0;flex:1"><h2 style="margin:0">📝 Today's plan</h2>
-    ${n.plan?`<div style="margin-top:6px;white-space:pre-wrap">${esc(n.plan)}</div>`:''}${n.zones?`<div class="note" style="margin-top:4px;white-space:pre-wrap">🎯 ${esc(n.zones)}</div>`:''}
+    ${n.plan?`<div style="margin-top:6px;white-space:pre-wrap">${esc(n.plan)}</div>`:''}
     ${(n.moodBefore||[]).length?`<div class="row" style="gap:6px;flex-wrap:wrap;margin-top:8px">${n.moodBefore.map(m=>`<span class="pill Open">${esc(m)}</span>`).join('')}</div>`:''}
     ${done?`<div class="note" style="margin-top:8px">Review: ${n.followed?`followed plan <b>${esc(n.followed)}</b>`:''}${n.outside==='Yes'?' · <b class="neg">traded outside plan</b>':''}${n.rating?' · '+'★'.repeat(n.rating):''}</div>`:''}</div>
     <button class="btn ${done?'':'primary'}" onclick="openDay('${d}')">${done?'Edit':'Review my day'}</button></div></div>`;
@@ -1904,7 +1910,7 @@ function daysCard(c){
     <div class="tablewrap"><table><thead><tr><th>When…</th><th class="num">Days</th><th class="num">Green days</th><th class="num">Average day</th><th class="num">Total</th></tr></thead><tbody>
     ${G.filter(([,rows])=>rows.length).map(([title,rows])=>`<tr class="nw-day"><td colspan="5"><b>${title}</b></td></tr>`+rows.map(r=>`<tr style="cursor:default"><td><b>${esc(r.k)}</b></td><td class="num">${r.n}</td><td class="num">${pct(r.win)}</td><td class="num ${cls(r.avg)}"><b>${money(r.avg)}</b><span class="pctsm">${fmtPct(r.avgPc)}</span></td><td class="num ${cls(r.tot)}">${money(r.tot)}</td></tr>`).join('')).join('')}
     </tbody></table></div>
-    ${days.filter(x=>x.n.lessons).length?`<details style="margin-top:10px"><summary class="note" style="cursor:pointer">Your lessons (${days.filter(x=>x.n.lessons).length})</summary>${days.filter(x=>x.n.lessons).reverse().map(x=>`<div style="margin:8px 0;cursor:pointer" onclick="openDay('${x.d}')"><b>${fmtDay(x.d)}</b> <span class="${cls(x.p)}">${x.t?money(x.p):''}</span><div class="note" style="white-space:pre-wrap">${esc(x.n.lessons)}</div></div>`).join('')}</details>`:''}</div>`;
+    ${(()=>{const ld=days.filter(x=>x.n.good||x.n.bad||x.n.lessons);return ld.length?`<details style="margin-top:10px"><summary class="note" style="cursor:pointer">What you did well &amp; badly (${ld.length} day${ld.length>1?'s':''})</summary>${ld.slice().reverse().map(x=>`<div style="margin:8px 0;cursor:pointer" onclick="openDay('${x.d}')"><b>${fmtDay(x.d)}</b> <span class="${cls(x.p)}">${x.t?money(x.p):''}</span>${x.n.good?`<div class="note" style="white-space:pre-wrap">✅ ${esc(x.n.good)}</div>`:''}${x.n.bad?`<div class="note" style="white-space:pre-wrap">❌ ${esc(x.n.bad)}</div>`:''}${x.n.lessons?`<div class="note" style="white-space:pre-wrap">${esc(x.n.lessons)}</div>`:''}</div>`).join('')}</details>`:'';})()}</div>`;
 }
 /* what each mistake cost: losses on trades with it + profit taken away (e.g. trade cancelled by the prop firm) */
 function mistakeCostCard(c){
@@ -1918,13 +1924,18 @@ function mistakeCostCard(c){
     ${rows.map(r=>`<tr style="cursor:default"><td><b>${esc(r.k)}</b></td><td class="num">${r.n}</td><td class="num ${r.lost?'neg':''}">${r.lost?money(r.lost,false):'—'}</td><td class="num ${r.removed?'neg':''}">${r.removed?money(r.removed,false):'—'}</td><td class="num ${r.cost?'neg':''}"><b>${money(r.cost,false)}</b></td></tr>`).join('')}</tbody></table></div>`
     :'<div class="note">No mistakes tagged in this period. Tag them in each trade\'s Review tab to see what they cost.</div>'}</div>`;
 }
+/* open/closed sections in "What's working" — remembered on this device (open by default) */
+function wwClosed(){try{return JSON.parse(localStorage.getItem('tj-ww-closed')||'[]');}catch(e){return [];}}
+function wwToggle(title,row){const cl=wwClosed();const i=cl.indexOf(title);const shut=i<0;if(shut)cl.push(title);else cl.splice(i,1);try{localStorage.setItem('tj-ww-closed',JSON.stringify(cl));}catch(e){}
+  row.querySelector('.wwsign').textContent=shut?'+':'−';row.closest('tbody').querySelectorAll(`tr[data-ww="${title}"]`).forEach(r=>{r.hidden=shut;});}
 /* plain-language breakdown: where you make money and where you lose it */
 function whatWorksCard(c){
   const DOW=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const MIN=5;const verdict=g=>g.n<MIN?['note',`Too few trades yet (${g.n} of ${MIN})`]:g.pnl/g.n>0?['pos','✅ Making money — keep doing this']:['neg','❌ Losing money — fix it or stop'];
   const avgPct=arr=>{const v=sumPct(arr);return v!=null&&arr.length?v/arr.length:null;};
-  const sec=(title,keyFn)=>{const groups=groupStats(c,keyFn);return groups.length?`<tr class="nw-day"><td colspan="5"><b>${title}</b></td></tr>`+groups.sort((a,b)=>b.pnl/b.n-a.pnl/a.n).map(g=>{const [vc,vt]=verdict(g);const ap=avgPct(c.filter(z=>[].concat(keyFn(z)).includes(g.k)));
-    return `<tr style="cursor:default"><td><b>${esc(g.k)}</b></td><td class="num">${g.n}</td><td class="num">${pct(g.winRate)}</td><td class="num ${cls(g.pnl/g.n)}"><b>${money(g.pnl/g.n)}</b><span class="pctsm">${fmtPct(ap)}</span></td><td class="${vc}">${vt}</td></tr>`;}).join(''):'';};
+  const closed=wwClosed();
+  const sec=(title,keyFn)=>{const groups=groupStats(c,keyFn);const shut=closed.includes(title);return groups.length?`<tr class="nw-day wwhead" onclick="wwToggle('${title}',this)" style="cursor:pointer"><td colspan="5"><span class="wwsign">${shut?'+':'−'}</span> <b>${title}</b> <span class="note">(${groups.length})</span></td></tr>`+groups.sort((a,b)=>b.pnl/b.n-a.pnl/a.n).map(g=>{const [vc,vt]=verdict(g);const ap=avgPct(c.filter(z=>[].concat(keyFn(z)).includes(g.k)));
+    return `<tr data-ww="${title}" ${shut?'hidden':''} style="cursor:default"><td><b>${esc(g.k)}</b></td><td class="num">${g.n}</td><td class="num">${pct(g.winRate)}</td><td class="num ${cls(g.pnl/g.n)}"><b>${money(g.pnl/g.n)}</b><span class="pctsm">${fmtPct(ap)}</span></td><td class="${vc}">${vt}</td></tr>`;}).join(''):'';};
   const st=stats(c);const avgTrade=c.length?st.pnl/c.length:null;
   const apAll=avgPct(c),apW=avgPct(c.filter(z=>z.r.outcome==='Win')),apL=avgPct(c.filter(z=>z.r.outcome==='Loss'));
   return `<div class="card" style="margin-top:16px"><h2>What's working — and what isn't</h2>
