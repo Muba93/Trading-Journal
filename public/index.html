@@ -491,7 +491,7 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const num=v=>{if(v===''||v==null)return null;const n=Number(v);return isFinite(n)?n:null;};
-function money(v,sign=true){if(v==null||!isFinite(v))return '—';const c=S.settings.currency||'$';const a=Math.abs(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});return (v<0?'−':(sign&&v>0?'+':''))+c+a;}
+function money(v,sign=true){if(v==null||!isFinite(v))return '—';if(Math.abs(v)<0.005)v=0;const c=S.settings.currency||'$';const a=Math.abs(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});return (v<0?'−':(sign&&v>0?'+':''))+c+a;}
 // short amount for tight spaces (phone calendar): +$284, −$32, +$1.7k
 function moneyShort(v){if(v==null||!isFinite(v))return '—';const c=S.settings.currency||'$';const a=Math.abs(v);const n=a>=1000?(a/1000).toFixed(a>=10000?0:1).replace(/\.0$/,'')+'k':String(Math.round(a));return (v<0?'−':v>0?'+':'')+c+n;}
 const cls=v=>v>0?'pos':v<0?'neg':'zero';
