@@ -9,7 +9,7 @@ import {
 } from '../../lib/core.js';
 
 const MIME_EXT = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' };
-const TX_TYPES = ['deposit', 'withdrawal', 'fee', 'payout', 'refund'];
+const TX_TYPES = ['deposit', 'withdrawal', 'fee', 'payout', 'refund', 'adjust']; // adjust = +/- balance correction
 const MAX_IMAGE = 10 * 1024 * 1024;
 
 export async function onRequest(ctx) {
