@@ -268,6 +268,12 @@ td.num,th.num{text-align:right}
 .cell .short{display:none}
 .prop2{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}
 @media (max-width:1100px){.prop2{grid-template-columns:1fr}}
+.mcal{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+.mcell{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--surface);min-height:74px;font-size:12px}
+.mcell.empty{opacity:.45}.mcell.w{background:var(--profit-soft);border-color:transparent}.mcell.l{background:var(--surface2)}
+.mcell .mn{font-weight:800;margin-bottom:4px}
+.mcell .mrow{display:flex;justify-content:space-between;gap:6px;color:var(--muted)}.mcell .mrow b{color:var(--ink);white-space:nowrap}.mcell .mrow b.pos{color:var(--profit)}
+@media (max-width:860px){.mcal{grid-template-columns:repeat(3,minmax(0,1fr))}.mcell{padding:6px;font-size:11px}.mcell .mrow{flex-direction:column;gap:0}}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
 .seg button{border:0;background:none;padding:8px 12px;font-weight:700;color:var(--muted);font-size:13px}
 .seg button.on{background:var(--btn);color:#fff}
@@ -541,7 +547,7 @@ function calc(t,lite){
   if(r.closed&&e!=null){
     r.resultPips=(x-e)*sign/sp.pip;
     const calcPnl=lot!=null?(x-e)*sign*sp.contract*lot*toUSD(sp.quote,sp.base,x):null;
-    const fees=num(t.fees)||0;
+    const fees=Math.abs(num(t.fees)||0); // commission is a cost whether typed as 5 or -5 (MT5 shows -5)
     r.calcPnl=calcPnl!=null?calcPnl-fees:null;
     r.pnl=num(t.pnlOverride)!=null?num(t.pnlOverride):r.calcPnl;
     r.outcome=t.outcomeManual||(Math.abs(r.resultPips)<=S.settings.beTol?'BE':(r.resultPips>0?'Win':'Loss')); // manual: e.g. a trade cancelled by the prop firm counts as BE
@@ -791,8 +797,8 @@ function rangeLabel(){return {today:'Today',week:'This week',month:'This month',
 
 /* ---------------- dashboard ---------------- */
 /* ---------- cash flows (deposits, withdrawals, fees, payouts) ---------- */
-const CASH={deposit:{label:'Deposit',bal:1,spent:true},withdrawal:{label:'Withdrawal',bal:-1,got:true},fee:{label:'Challenge fee',bal:0,spent:true},payout:{label:'Payout',bal:-1,got:true,split:true},refund:{label:'Fee refund',bal:0,got:true}};
-function cashTypesFor(p){return p&&p.type==='prop'?['fee','payout','refund']:['deposit','withdrawal'];}
+const CASH={deposit:{label:'Deposit',bal:1,spent:true},withdrawal:{label:'Withdrawal',bal:-1,got:true},fee:{label:'Challenge fee',bal:0,spent:true},payout:{label:'Payout',bal:-1,got:true,split:true},refund:{label:'Fee refund',bal:0,got:true},adjust:{label:'Balance correction',bal:1}}; // adjust: +/- amount, balance only (e.g. unrecorded commission/swap)
+function cashTypesFor(p){return p&&p.type==='prop'?['fee','payout','refund','adjust']:['deposit','withdrawal','adjust'];}
 function cashTime(c){const m=String(c.date||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m?Date.UTC(+m[1],+m[2]-1,+m[3])-S.settings.homeTz*3600e3:0;}
 function cashList(pid){return Object.values(S.cash).filter(c=>(!pid||pid==='all'||c.platform===pid)&&CASH[c.type]).sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:(a.createdAt||0)-(b.createdAt||0));}
 function balEffect(c){return (CASH[c.type]?.bal||0)*(num(c.amount)||0);}
@@ -1307,6 +1313,8 @@ function journeyInfo(root){
   return {root,chain,st,fee,got,net:got-fee,status,prog,reachedFunded,failed};
 }
 function journeys(){return S.settings.platforms.filter(p=>p.type==='prop'&&!(p.prevId&&propById(p.prevId))).map(journeyInfo);}
+// first date with a fee, payout or trade in the journey ('' if none) — used to list newest first
+function journeyStart(j){const d=j.chain.flatMap(x=>acctEvents(x.id).map(e=>e.day)).filter(Boolean).sort();return d[0]||'';}
 function journeyPath(j,curId){return j.st.map(x=>{const ic=x.s?.status==='Failed'?'<span class="neg">✗</span>':x.s?.status==='Passed'?'<span class="pos">✓</span>':x.p.stage==='funded'&&x.s?.status!=='Failed'?'<span class="pos">★</span>':'<span style="color:var(--accent)">●</span>';
   return `<span class="jstep ${x.p.id===curId?'cur':''}">${stageLabel(x.p)} ${ic}</span>`;}).join('<span class="note"> → </span>');}
 function nextStage(id){
@@ -1960,13 +1968,16 @@ function viewMoney(){
   const allCs=cashList(pid).filter(c=>acctType(S.settings.platforms.find(p=>p.id===c.platform))!=='paper');const allSpent=sumBy(allCs,cashSpent)+sumBy(accts.filter(p=>acctType(p)==='personal'),p=>num(p.balance)||0);
   const stillIn=sumBy(accts.filter(p=>acctType(p)==='personal'),p=>(num(p.balance)||0)+sumBy(acctEvents(p.id),e=>e.d));
   const allGot=sumBy(allCs,cashGot);const net=allGot+stillIn-allSpent;
-  // monthly table
-  const months={};const add=(m,k,v)=>{(months[m]=months[m]||{pnl:0,spent:0,got:0,n:0})[k]+=v;};
-  trades.forEach(z=>{add(z.r.day.slice(0,7),'pnl',z.r.pnl);add(z.r.day.slice(0,7),'n',1);});
-  cs.forEach(c=>{add(String(c.date).slice(0,7),'spent',cashSpent(c));add(String(c.date).slice(0,7),'got',cashGot(c));});
-  const mk=Object.keys(months).sort().reverse();const best=mk.length?mk.reduce((a,b)=>months[b].pnl>months[a].pnl?b:a):null;
-  const mlabel=m=>new Date(m+'-01T00:00:00Z').toLocaleDateString(undefined,{month:'long',year:'numeric',timeZone:'UTC'});
-  const pctM=m=>{if(!single)return null;const sb=monthStartBal(pid,m);return sb>0?months[m].pnl/sb*100:null;};
+  // month-by-month calendar: invested vs profit taken
+  const months={};cs.forEach(c=>{const m=String(c.date).slice(0,7);(months[m]=months[m]||{spent:0,got:0});months[m].spent+=cashSpent(c);months[m].got+=cashGot(c);});
+  const calYears=[...new Set(Object.keys(months).map(m=>m.slice(0,4)))].sort().reverse();
+  const mname=i=>new Date(Date.UTC(2000,i,1)).toLocaleDateString(undefined,{month:'short',timeZone:'UTC'});
+  // breaches: each failed/breached prop challenge, and each personal top-up after losing the balance
+  const failedJ=journeys().filter(j=>(j.status==='Failed'||j.status.includes('breached'))&&(pid==='all'||j.chain.some(x=>x.id===pid))).map(j=>({j,start:journeyStart(j)})).sort((a,b)=>b.start.localeCompare(a.start));
+  const propLost=sumBy(failedJ,x=>x.j.fee);
+  const persRows=accts.filter(p=>acctType(p)==='personal').map(p=>{const c=cashList(p.id);const dep=c.filter(x=>x.type==='deposit');const bal=(num(p.balance)||0)+sumBy(acctEvents(p.id),e=>e.d);
+    return {p,n:dep.length,lost:Math.max(0,(num(p.balance)||0)+sumBy(dep,x=>num(x.amount))-sumBy(c.filter(x=>x.type==='withdrawal'),x=>num(x.amount))-Math.max(0,bal))};}).filter(r=>r.n);
+  const persLost=sumBy(persRows,r=>r.lost),persN=sumBy(persRows,r=>r.n),breachN=failedJ.length+persN;
   const yrs={};[...enriched().filter(z=>(pid==='all'||z.t.platform===pid)&&realPnlAcct(z.t.platform)&&z.r.closed&&z.r.pnl!=null&&z.r.day),].forEach(z=>{const y=z.r.day.slice(0,4);(yrs[y]=yrs[y]||{pnl:0,spent:0,got:0}).pnl+=z.r.pnl;});
   allCs.forEach(c=>{const y=String(c.date).slice(0,4);(yrs[y]=yrs[y]||{pnl:0,spent:0,got:0});yrs[y].spent+=cashSpent(c);yrs[y].got+=cashGot(c);});
   const acRows=S.settings.platforms.map(p=>{const c=cashList(p.id);const ev=acctEvents(p.id);const ps=propStatus(p);
@@ -1975,29 +1986,32 @@ function viewMoney(){
     <div class="filters"><select class="sel" aria-label="Year" onchange="S.moneyYear=this.value;render()"><option value="all">All years</option>${years.map(y=>`<option ${yr===y?'selected':''}>${y}</option>`).join('')}</select>${filterBar({noRange:true}).replace('<div class="filters">','').replace(/<\/div>\s*$/,'')}
     <button class="btn primary" onclick="editCash()">+ Add transaction</button></div></div>
   <div class="grid g4">
-    <div class="stat"><div class="l">Money in</div><div class="v">${money(spent,false)}</div><div class="s">Deposits ${money(dep,false)} · fees ${money(fee,false)}</div></div>
-    <div class="stat"><div class="l">Money received</div><div class="v pos">${money(got,false)}</div><div class="s">Withdrawals ${money(wd,false)} · payouts ${money(payMine,false)}${ref?` · refunds ${money(ref,false)}`:''}</div></div>
-    <div class="stat"><div class="l">Trading P&amp;L (funded + personal)</div><div class="v ${cls(tp)}">${money(tp)}</div><div class="s">${yr==='all'?'All time':yr} · ${trades.length} trades · challenges not counted</div></div>
-    <div class="stat"><div class="l">Overall return (all time)</div><div class="v ${cls(net)}">${money(net)}</div><div class="s">${allSpent?`ROI ${(net/allSpent*100).toFixed(1)}% · received + still in accounts − money in`:'Add deposits or fees to see ROI'}</div></div>
+    <div class="stat"><div class="l">Amount invested</div><div class="v">${money(spent,false)}</div><div class="s">Deposits ${money(dep,false)} · challenge fees ${money(fee,false)}</div></div>
+    <div class="stat"><div class="l">Profit taken</div><div class="v pos">${money(got,false)}</div><div class="s">Withdrawals ${money(wd,false)} · payouts ${money(payMine,false)}${ref?` · refunds ${money(ref,false)}`:''}</div></div>
+    <div class="stat"><div class="l">Accounts breached (all time)</div><div class="v ${breachN?'neg':''}">${breachN}</div><div class="s">${breachN?`${money(propLost+persLost,false)} lost · ${failedJ.length} prop · ${persN} personal top-up${persN===1?'':'s'}`:'No breaches 🎉'}</div></div>
+    <div class="stat"><div class="l">Overall return (all time)</div><div class="v ${cls(net)}">${money(net)}</div><div class="s">${allSpent?`ROI ${(net/allSpent*100).toFixed(1)}% · profit taken + still in accounts − invested`:'Add deposits or fees to see ROI'}</div></div>
   </div>
   <div class="grid g2" style="margin-top:16px">
-    <div class="card"><h2>Money in vs received</h2><div class="note" style="margin:-6px 0 8px">Deposits &amp; challenge fees against withdrawals, payouts &amp; refunds each month. The line is your running net.</div>${cs.length?`<div class="chartbox short"><canvas id="c_money"></canvas></div>`:'<div class="note">No deposits, fees or payouts yet.</div>'}</div>
-    <div class="card"><h2>Yearly summary</h2>${Object.keys(yrs).length?`<div class="tablewrap"><table><thead><tr><th>Year</th><th class="num">Trading P&amp;L</th><th class="num">Money in</th><th class="num">Received</th><th class="num">Net cash</th></tr></thead><tbody>
+    <div class="card"><h2>Invested vs profit taken</h2><div class="note" style="margin:-6px 0 8px">Deposits &amp; challenge fees against withdrawals, payouts &amp; refunds each month. The line is your running net.</div>${cs.length?`<div class="chartbox short"><canvas id="c_money"></canvas></div>`:'<div class="note">No deposits, fees or payouts yet.</div>'}</div>
+    <div class="card"><h2>Yearly summary</h2>${Object.keys(yrs).length?`<div class="tablewrap"><table><thead><tr><th>Year</th><th class="num">Trading P&amp;L</th><th class="num">Invested</th><th class="num">Profit taken</th><th class="num">Net cash</th></tr></thead><tbody>
       ${Object.keys(yrs).sort().reverse().map(y=>`<tr style="cursor:default"><td><b>${y}</b></td><td class="num ${cls(yrs[y].pnl)}">${money(yrs[y].pnl)}</td><td class="num">${money(yrs[y].spent,false)}</td><td class="num">${money(yrs[y].got,false)}</td><td class="num ${cls(yrs[y].got-yrs[y].spent)}">${money(yrs[y].got-yrs[y].spent)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="note">No data yet.</div>'}</div>
   </div>
-  ${mk.length?`<div class="card" style="margin-top:16px"><h2>Month by month</h2>${single?'':'<div class="note" style="margin:-6px 0 10px">Select one account above to see the monthly % return on its balance.</div>'}
-    <div class="tablewrap"><table><thead><tr><th>Month</th><th class="num">Trades</th><th class="num">Trading P&amp;L</th><th class="num">Return %</th><th class="num">Money in</th><th class="num">Received</th></tr></thead><tbody>
-    ${mk.map(m=>{const r=months[m],pc=pctM(m);return `<tr style="cursor:default"><td><b>${mlabel(m)}</b>${m===best&&r.pnl>0?' <span class="pill Win">Best month</span>':''}</td><td class="num">${r.n}</td><td class="num ${cls(r.pnl)}"><b>${money(r.pnl)}</b></td><td class="num ${cls(pc)}">${pc==null?'—':(pc>0?'+':'')+pc.toFixed(2)+'%'}</td><td class="num">${r.spent?money(r.spent,false):'—'}</td><td class="num">${r.got?money(r.got,false):'—'}</td></tr>`;}).join('')}</tbody></table></div></div>`:''}
+  ${breachN?`<div class="card" style="margin-top:16px"><h2>Breaches</h2><div class="note" style="margin:-6px 0 10px">Every failed prop challenge, and every personal top-up after losing the balance — and what each one cost you.</div>
+    <div class="grid g2"><div><h3 style="margin:0 0 6px">Prop firm · ${failedJ.length} failed · ${money(propLost,false)}</h3>${failedJ.length?`<div class="tablewrap"><table><thead><tr><th>Challenge</th><th>Started</th><th class="num">Fee lost</th></tr></thead><tbody>${failedJ.map(x=>`<tr style="cursor:default"><td><b>${esc(x.j.root.name)}</b></td><td>${esc(x.start||'—')}</td><td class="num neg">${money(x.j.fee,false)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="note">No failed challenges.</div>'}</div>
+    <div><h3 style="margin:0 0 6px">Personal · ${persN} top-up${persN===1?'':'s'} · ${money(persLost,false)} lost</h3>${persRows.length?`<div class="tablewrap"><table><thead><tr><th>Account</th><th class="num">Deposits</th><th class="num">Money lost</th></tr></thead><tbody>${persRows.map(r=>`<tr style="cursor:default"><td><b>${esc(r.p.name)}</b></td><td class="num">${r.n}</td><td class="num ${r.lost?'neg':''}">${money(r.lost,false)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="note">No personal deposits.</div>'}</div></div>
+    <div class="note" style="margin-top:8px">Money lost on personal accounts = starting balance + deposits − withdrawals − balance left now.</div></div>`:''}
+  ${calYears.length?`<div class="card" style="margin-top:16px"><h2>Month by month</h2><div class="note" style="margin:-6px 0 10px">Amount invested and profit taken each month.</div>
+    ${calYears.map(y=>`<h3 style="margin:12px 0 8px">${y}</h3><div class="mcal">${Array.from({length:12},(_,i)=>{const r=months[y+'-'+pad(i+1)];return `<div class="mcell ${r?(r.got>r.spent?'w':r.spent?'l':''):'empty'}"><div class="mn">${mname(i)}</div>${r?`<div class="mrow"><span>Invested</span><b>${r.spent?money(r.spent,false):'—'}</b></div><div class="mrow"><span>Profit taken</span><b class="${r.got?'pos':''}">${r.got?money(r.got,false):'—'}</b></div>`:''}</div>`;}).join('')}</div>`).join('')}</div>`:''}
   ${journeys().length&&pid==='all'?`<div class="card" style="margin-top:16px"><h2>Prop firm journeys</h2><div class="note" style="margin:-6px 0 10px">Each challenge from purchase to funded, with the fee you paid and what it gave back.</div>
     <div class="tablewrap"><table><thead><tr><th>Journey</th><th>Stages</th><th>Status</th><th class="num">Fee paid</th><th class="num">You received</th><th class="num">Net result</th></tr></thead><tbody>
-    ${journeys().map(j=>`<tr style="cursor:default"><td><b>${esc(j.root.name)}</b><div class="note">${PROGRAMS[j.prog]?.label||''}</div></td><td>${journeyPath(j)}</td><td><span class="pill ${j.status.startsWith('Funded')&&!j.status.includes('breached')?'Long':j.status==='Failed'||j.status.includes('breached')?'Loss':j.status.startsWith('Passed')?'Win':'Open'}">${j.status}</span></td><td class="num">${money(j.fee,false)}</td><td class="num">${money(j.got,false)}</td><td class="num ${cls(j.net)}"><b>${money(j.net)}</b></td></tr>`).join('')}
+    ${journeys().map(j=>({j,s:journeyStart(j)})).sort((a,b)=>b.s.localeCompare(a.s)).map(({j})=>`<tr style="cursor:default"><td><b>${esc(j.root.name)}</b><div class="note">${PROGRAMS[j.prog]?.label||''}</div></td><td>${journeyPath(j)}</td><td><span class="pill ${j.status.startsWith('Funded')&&!j.status.includes('breached')?'Long':j.status==='Failed'||j.status.includes('breached')?'Loss':j.status.startsWith('Passed')?'Win':'Open'}">${j.status}</span></td><td class="num">${money(j.fee,false)}</td><td class="num">${money(j.got,false)}</td><td class="num ${cls(j.net)}"><b>${money(j.net)}</b></td></tr>`).join('')}
     </tbody></table></div><div class="note" style="margin-top:8px">Tip: record the challenge fee on the first stage of each journey, and payouts / fee refunds on the funded account.</div></div>`:''}
-  <div class="card" style="margin-top:16px"><h2>By account</h2><div class="tablewrap"><table><thead><tr><th>Account</th><th>Type</th><th class="num">Money in</th><th class="num">Received</th><th class="num">Trading P&amp;L</th><th class="num">Balance now</th></tr></thead><tbody>
-    ${acRows.map(r=>`<tr style="cursor:default"><td><b>${esc(r.p.name)}</b>${r.status?` <span class="pill ${({Passed:'Win',Failed:'Loss',Active:'Open',Funded:'Long'})[r.status]}">${r.status}</span>`:''}</td><td>${acctLabel(r.p)}</td><td class="num">${money(r.spent,false)}</td><td class="num">${money(r.got,false)}</td><td class="num ${cls(r.pnl)}">${r.pnl==null?'<span class="note" title="Challenge and paper accounts are not counted as real money">not counted</span>':money(r.pnl)}</td><td class="num">${money(r.bal,false)}</td></tr>`).join('')}</tbody></table></div>
-    <div class="note" style="margin-top:8px">Personal accounts: money in includes the starting balance plus deposits. Prop accounts: money in is the challenge fee; received is your share of payouts. Trading P&amp;L only counts personal and funded accounts — challenge stages and paper accounts are not real money.</div></div>
+  <div class="card" style="margin-top:16px"><h2>By account</h2><div class="tablewrap"><table><thead><tr><th>Account</th><th>Type</th><th class="num">Invested</th><th class="num">Profit taken</th><th class="num">Balance now</th></tr></thead><tbody>
+    ${acRows.map(r=>`<tr style="cursor:default"><td><b>${esc(r.p.name)}</b>${r.status?` <span class="pill ${({Passed:'Win',Failed:'Loss',Active:'Open',Funded:'Long'})[r.status]}">${r.status}</span>`:''}</td><td>${acctLabel(r.p)}</td><td class="num">${money(r.spent,false)}</td><td class="num">${money(r.got,false)}</td><td class="num">${money(r.bal,false)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="note" style="margin-top:8px">Personal accounts: invested includes the starting balance plus deposits. Prop accounts: invested is the challenge fee; profit taken is your share of payouts. Paper accounts are not counted as real money.</div></div>
   <div class="card" style="margin-top:16px"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Transactions</h2><button class="btn sm" onclick="editCash()">+ Add</button></div>
     ${cs.length?`<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Date</th><th>Account</th><th>Type</th><th class="num">Amount</th><th class="num">You received</th><th>Note</th></tr></thead><tbody>
-    ${cs.slice().reverse().map(c=>`<tr onclick="editCash('${c.id}')"><td>${esc(c.date)}</td><td>${esc(S.settings.platforms.find(p=>p.id===c.platform)?.name||'Unknown')}</td><td><span class="pill ${CASH[c.type].spent?'Open':'Win'}">${CASH[c.type].label}</span></td><td class="num"><b>${money(num(c.amount),false)}</b></td><td class="num">${cashGot(c)?money(cashGot(c),false):'—'}</td><td>${esc(c.note||'')}</td></tr>`).join('')}</tbody></table></div>`
+    ${cs.slice().reverse().map(c=>`<tr onclick="editCash('${c.id}')"><td>${esc(c.date)}</td><td>${esc(S.settings.platforms.find(p=>p.id===c.platform)?.name||'Unknown')}</td><td><span class="pill ${CASH[c.type].spent?'Open':'Win'}">${CASH[c.type].label}</span></td><td class="num"><b>${c.type==='adjust'?money(num(c.amount)):money(num(c.amount),false)}</b></td><td class="num">${cashGot(c)?money(cashGot(c),false):'—'}</td><td>${esc(c.note||'')}</td></tr>`).join('')}</tbody></table></div>`
     :`<div style="margin-top:12px">${emptyBox('No transactions yet','Add deposits and withdrawals for personal accounts, and challenge fees and payouts for prop firm accounts.')}</div>`}</div>`;
 }
 function drawMoney(){
@@ -2007,9 +2021,9 @@ function drawMoney(){
   const m={};cs.forEach(c=>{const k=String(c.date).slice(0,7);(m[k]=m[k]||{s:0,g:0});m[k].s+=cashSpent(c);m[k].g+=cashGot(c);});
   const ks=Object.keys(m).sort();const css=getComputedStyle(document.documentElement);
   charts.money=new Chart(cv,{type:'bar',data:{labels:ks.map(k=>new Date(k+'-01T00:00:00Z').toLocaleDateString(undefined,{month:'short',year:'2-digit',timeZone:'UTC'})),datasets:[
-    {label:'Money in',data:ks.map(k=>m[k].s),backgroundColor:'#94a3b8',borderRadius:6,maxBarThickness:40,order:2},
-    {label:'Received',data:ks.map(k=>m[k].g),backgroundColor:'#f59e0b',borderRadius:6,maxBarThickness:40,order:2},
-    {type:'line',label:'Net so far (received − money in)',data:ks.reduce((a,k)=>(a.push((a.length?a[a.length-1]:0)+m[k].g-m[k].s),a),[]),borderColor:css.getPropertyValue('--accent').trim(),backgroundColor:css.getPropertyValue('--accent').trim(),pointRadius:3,tension:.25,order:1}]},options:chartOpts({legend:true})});
+    {label:'Amount invested',data:ks.map(k=>m[k].s),backgroundColor:'#94a3b8',borderRadius:6,maxBarThickness:40,order:2},
+    {label:'Profit taken',data:ks.map(k=>m[k].g),backgroundColor:'#f59e0b',borderRadius:6,maxBarThickness:40,order:2},
+    {type:'line',label:'Net so far (profit taken − invested)',data:ks.reduce((a,k)=>(a.push((a.length?a[a.length-1]:0)+m[k].g-m[k].s),a),[]),borderColor:css.getPropertyValue('--accent').trim(),backgroundColor:css.getPropertyValue('--accent').trim(),pointRadius:3,tension:.25,order:1}]},options:chartOpts({legend:true})});
 }
 function editCash(id){
   const ex=id?S.cash[id]:null;const pfs=S.settings.platforms;if(!pfs.length){toast('Add an account first in Settings');return;}
@@ -2024,14 +2038,14 @@ function renderCashDlg(){
   <div class="dlg-b"><div class="fg" style="grid-template-columns:1fr 1fr">
     <div class="f span2"><label for="ce_acct">Account</label><select id="ce_acct" class="sel" onchange="ceSet('platform',this.value,true)">${acctOptions(c.platform,true)}</select></div>
     <div class="f span2"><label>Type</label><div class="chips">${types.map(t=>`<button type="button" class="chip ${c.type===t?'on':''}" onclick="ceSet('type','${t}',true)">${CASH[t].label}</button>`).join('')}</div></div>
-    <div class="f"><label for="ce_amt">Amount (${esc(S.settings.currency)})</label><input id="ce_amt" class="inp" type="number" step="any" min="0" value="${esc(c.amount)}" onchange="ceSet('amount',this.value,true)"></div>
+    <div class="f"><label for="ce_amt">Amount (${esc(S.settings.currency)})</label><input id="ce_amt" class="inp" type="number" step="any" ${c.type==='adjust'?'':'min="0"'} value="${esc(c.amount)}" onchange="ceSet('amount',this.value,true)">${c.type==='adjust'?'<div class="note">Use a minus for money taken off the balance (e.g. -63.02 for unrecorded commission). Doesn\'t count as invested or profit taken.</div>':''}</div>
     <div class="f"><label for="ce_date">Date</label><input id="ce_date" class="inp" type="date" value="${esc(c.date)}" onchange="ceSet('date',this.value)"></div>
     <div class="f span2"><label for="ce_note">Note (optional)</label><input id="ce_note" class="inp" value="${esc(c.note||'')}" placeholder="e.g. FTMO 10k challenge, bank transfer" onchange="ceSet('note',this.value)"></div>
   </div>
   <div class="note" style="margin-top:10px">${c.type==='payout'?`Payout taken from the account balance. With your ${splitOf(c.platform)}% split you receive <b>${amt?money(amt*splitOf(c.platform)/100,false):'—'}</b>. Change the split in the account settings.`:c.type==='fee'?'What you paid to buy this challenge. It does not change the account balance.':c.type==='refund'?'Challenge fee returned to you by the prop firm.':c.type==='deposit'?'Money added to the account. Increases the balance.':'Money taken out of the account. Reduces the balance.'}</div></div>
   <div class="dlg-f">${isNew?'':`<button class="btn danger" style="margin-right:auto" onclick="removeCash()">Delete</button>`}<button class="btn" onclick="dlgClose(null)">Cancel</button><button class="btn primary" onclick="commitCash()">${isNew?'Add':'Save'}</button></div>`);
 }
-async function commitCash(){document.activeElement?.blur?.();const c=window._ce.c;if(!(num(c.amount)>0)){toast('Enter an amount');$('#ce_amt')?.focus();return;}if(!c.date){toast('Choose a date');return;}
+async function commitCash(){document.activeElement?.blur?.();const c=window._ce.c;if(c.type==='adjust'?!num(c.amount):!(num(c.amount)>0)){toast('Enter an amount');$('#ce_amt')?.focus();return;}if(!c.date){toast('Choose a date');return;}
   c.amount=String(num(c.amount));await saveCash(c);dlgClose(null);toast(CASH[c.type].label+' saved');render();}
 async function removeCash(){const c=window._ce.c;dlgClose(null);if(!await askConfirm('Delete transaction?','This transaction will be removed.','Delete',true))return;await deleteCash(c.id);toast('Transaction deleted');render();}
 
