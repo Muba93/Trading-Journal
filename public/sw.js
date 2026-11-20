@@ -3,7 +3,7 @@
 // - /vendor/ and /icons/: cached after first use, so the app opens faster.
 // - /api/ and /uploads/ are never cached: journal data and screenshots stay private to the logged-in user.
 // Bump VERSION when the cached file list changes; old caches are deleted on activate.
-const VERSION = 'tj-v1';
+const VERSION = 'tj-v2';
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -22,7 +22,10 @@ self.addEventListener('fetch', e => {
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/uploads/')) return;
 
   if (req.mode === 'navigate') {
-    e.respondWith(fetch(req).catch(() => offlinePage()));
+    // retry once with a plain request before showing the offline screen (a first load can fail spuriously)
+    e.respondWith(fetch(req)
+      .catch(() => fetch(url.href, { cache: 'no-store', credentials: 'same-origin' }))
+      .catch(() => offlinePage()));
     return;
   }
   if (url.pathname.startsWith('/vendor/') || url.pathname.startsWith('/icons/')) {
