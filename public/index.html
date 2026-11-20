@@ -266,6 +266,9 @@ td.num,th.num{text-align:right}
 .cell.l{background:var(--loss-soft);border-color:transparent}
 .cell.wk{background:var(--surface2)}
 .cell .short{display:none}
+.cell .pc{font-size:11px;font-weight:700;line-height:1.1}
+.pctsm{font-size:.62em;font-weight:700;margin-left:6px;opacity:.85;white-space:nowrap}
+.wlb .pctsm{font-size:.75em;margin-left:2px}
 .prop2{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}
 @media (max-width:1100px){.prop2{grid-template-columns:1fr}}
 .scorebadge{text-align:center;min-width:92px;padding:8px 14px;border-radius:16px;background:var(--surface2);border:1px solid var(--line)}
@@ -495,6 +498,14 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const num=v=>{if(v===''||v==null)return null;const n=Number(v);return isFinite(n)?n:null;};
 function money(v,sign=true){if(v==null||!isFinite(v))return '—';if(Math.abs(v)<0.005)v=0;const c=S.settings.currency||'$';const a=Math.abs(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});return (v<0?'−':(sign&&v>0?'+':''))+c+a;}
+// % of the account: a trade's P&L ÷ its account balance just before the trade opened; a day/week/month = sum of its trades' %
+function tradePct(z){const t=z.t,r=z.r;if(r.pnl==null||r.tOpen==null)return null;
+  if(tradePct.v!==S._ver){tradePct.v=S._ver;tradePct.m={};}if(t.id in tradePct.m)return tradePct.m[t.id];
+  const p=S.settings.platforms.find(x=>x.id===t.platform);let v=null;
+  if(p){const bal=(num(p.balance)||0)+sumBy((balIdx()[p.id]||[]).filter(e=>e.t<r.tOpen),e=>e.d);if(bal>0)v=r.pnl/bal*100;}
+  return tradePct.m[t.id]=v;}
+function sumPct(list){const v=list.filter(z=>z.r.closed).map(tradePct).filter(x=>x!=null);return v.length?sumBy(v,x=>x):null;}
+function fmtPct(v,dp=2){if(v==null||!isFinite(v))return '';if(Math.abs(v)<0.005)v=0;return (v>0?'+':v<0?'−':'')+Math.abs(v).toFixed(dp)+'%';}
 // short amount for tight spaces (phone calendar): +$284, −$32, +$1.7k
 function moneyShort(v){if(v==null||!isFinite(v))return '—';const c=S.settings.currency||'$';const a=Math.abs(v);const n=a>=1000?(a/1000).toFixed(a>=10000?0:1).replace(/\.0$/,'')+'k':String(Math.round(a));return (v<0?'−':v>0?'+':'')+c+n;}
 const cls=v=>v>0?'pos':v<0?'neg':'zero';
@@ -905,7 +916,7 @@ function newsSection(){
     ${NEWS.err&&!NEWS.events?`<div class="note">${esc(NEWS.err)} <button type="button" class="linkbtn" onclick="loadNews(true)">Try again</button></div>`
       :!NEWS.events?'<div class="note">Loading news…</div>'
       :rows||`<div class="empty" style="padding:22px"><b>No ${NEWS.impact==='Prop'?'prop firm restricted':NEWS.impact==='High'?'high-impact':'high or medium impact'} news ${NEWS.tab==='today'?'today':'this week'}${NEWS.scope==='fav'?' for your pairs':''} ✓</b>${NEWS.tab==='today'?'Check “This week” to plan ahead.':''}</div>`}
-    <div class="note" style="margin-top:8px">Source: Forex Factory calendar (updated hourly). Always double-check times before trading.</div></div>`;
+    <div class="note" style="margin-top:8px">${NEWS.at?`Updated ${hhmm(NEWS.at)} · `:''}<button type="button" class="linkbtn" onclick="loadNews(true)">${NEWS.loading?'Refreshing…':'Refresh'}</button> · Source: Forex Factory calendar (forecast &amp; previous only — actual results aren't in this free feed). Always double-check times before trading.</div></div>`;
 }
 function newsAlerts(){
   if(!NEWS.events)return [];const w=(S.settings.newsWindow||30)*60e3;const ccy=newsCurrencies();const now=Date.now();
@@ -926,6 +937,8 @@ function newsNearTrade(t,r){
   return NEWS.events.filter(e=>e.impact==='High'&&cs.includes(e.currency)&&Math.abs(e.t-r.tOpen)<=w);
 }
 function newsWindowText(t){return isPropTrade(t)?`prop firm restricted news within ${S.settings.propNewsMin??5} min of entry/exit`:`high-impact news within ${S.settings.newsWindow||30} min of entry`;}
+// phones pause timers while the app is in the background: refresh the news (and redraw "today") as soon as it's back
+document.addEventListener('visibilitychange',()=>{if(document.hidden||!S.ready)return;if(Date.now()-NEWS.at>10*60e3)loadNews(true);else if(S.view==='dashboard'&&!document.querySelector('.overlay,.dlg'))render();});
 setInterval(()=>{document.querySelectorAll('.nw-cd[data-t]').forEach(el=>{el.textContent=countdown(Number(el.dataset.t));});if(S.view==='dashboard'&&S.ready)loadNews(false);
   // redraw the banner when a prop firm no-trade window starts or ends (only when nothing is being edited)
   const now=Date.now(),pw=propWin(),w=(S.settings.newsWindow||30)*60e3;
@@ -957,7 +970,7 @@ function viewDashboard(){
   const hero=`<div class="card herocard">${ac&&!ac.noBal?`<div class="note" style="font-weight:700">${esc(ac.pf.name)} · account balance</div><div class="bigpnl">${money(ac.now,false)}</div>
       <div class="note" style="margin-top:4px">${ac.hasCash?`Deposited ${money(ac.invested,false)}${ac.wd?` · withdrawn ${money(ac.wd,false)}`:''} · trading P&amp;L ${money(ac.tradePnl)}${ac.invested?` (${(ac.tradePnl/ac.invested*100).toFixed(2)}%)`:''}`:`Started at ${money(ac.initial,false)} · overall ${money(ac.tradePnl)} (${ac.initial?(ac.tradePnl/ac.initial*100).toFixed(2):'0.00'}%)`}</div>
       <span class="trend ${st.pnl>=0?'up':'down'}">${st.pnl>=0?'▲':'▼'} ${money(st.pnl)} (${ac.start?(st.pnl/ac.start*100).toFixed(2):'0.00'}%) ${rangeLabel().toLowerCase()}</span>`
-    :`<div class="note" style="font-weight:700">Net P&amp;L · ${rangeLabel()}${ac?' · '+esc(ac.pf.name):' · all platforms'}</div><div class="bigpnl">${money(st.pnl)}</div>${st.n?`<span class="trend ${st.pnl>=0?'up':'down'}">${st.pnl>=0?'▲ In profit':'▼ In drawdown'}</span>`:''}${ac&&ac.noBal?`<div class="note" style="margin-top:8px">Add a starting balance for this account in Settings to track its balance.</div>`:''}`}
+    :`<div class="note" style="font-weight:700">Net P&amp;L · ${rangeLabel()}${ac?' · '+esc(ac.pf.name):' · all platforms'}</div><div class="bigpnl">${money(st.pnl)}</div>${st.n?`<span class="trend ${st.pnl>=0?'up':'down'}">${st.pnl>=0?'▲ In profit':'▼ In drawdown'}${sumPct(list)!=null?' · '+fmtPct(sumPct(list))+' of account':''}</span>`:''}${ac&&ac.noBal?`<div class="note" style="margin-top:8px">Add a starting balance for this account in Settings to track its balance.</div>`:''}`}
     <div class="wlb" style="margin-top:18px"><div><b>${st.n}</b>Closed</div><div><b>${st.wins}</b>Wins</div><div><b>${st.losses}</b>Losses</div><div><b>${st.be}</b>BE</div><div><b>${st.open}</b>Open</div></div></div>`;
   const toggles=lines.map(l=>`<button type="button" class="chip ${CHSHOW[l.k]?'on':''}" aria-pressed="${!!CHSHOW[l.k]}" onclick="toggleCh('${l.k}')"><span class="dot" style="background:${l.color}"></span>${l.label}</button>`).join('');
   const goalG=PERIODS.map(([g,rg,lab])=>{const {pnl,target:tg}=goalProgress(g,rg);
@@ -1142,7 +1155,7 @@ function tradeRow({t,r}){
     <div class="hide-m"><span class="pill ${t.dir}">${t.dir}</span></div>
     <div class="meta hide-m">${esc(r.platformName)}${(t.setups||[]).length?' · '+esc(t.setups.join(', ')):''}</div>
     <div class="hide-m"><span class="pill ${r.outcome}">${r.outcome}</span></div>
-    <div class="amt ${cls(r.pnl)}">${r.closed?money(r.pnl):'Open'}<div class="meta">${r.rMult!=null?r.rMult.toFixed(2)+'R':''}</div></div>
+    <div class="amt ${cls(r.pnl)}">${r.closed?money(r.pnl):'Open'}<div class="meta">${[r.closed?fmtPct(tradePct({t,r})):'',r.rMult!=null?r.rMult.toFixed(2)+'R':''].filter(Boolean).join(' · ')}</div></div>
   </button>`;
 }
 
@@ -1159,7 +1172,7 @@ function viewTrades(){
   </div>
   ${S.filter.range==='custom'?`<div class="row" style="margin-bottom:16px"><input type="date" class="inp" aria-label="From" value="${S.filter.from}" onchange="S.filter.from=this.value;render()"><span class="note">to</span><input type="date" class="inp" aria-label="To" value="${S.filter.to}" onchange="S.filter.to=this.value;render()"></div>`:''}
   <div class="grid g4">
-    <div class="stat"><div class="l">Total P&amp;L</div><div class="v ${cls(st.pnl)}">${money(st.pnl)}</div><div class="s">${rangeLabel()}</div></div>
+    <div class="stat"><div class="l">Total P&amp;L</div><div class="v ${cls(st.pnl)}">${money(st.pnl)}<span class="pctsm">${fmtPct(sumPct(list))}</span></div><div class="s">${rangeLabel()}</div></div>
     <div class="stat"><div class="l">Total trades</div><div class="v">${list.length}</div><div class="s">${st.open} still open</div></div>
     <div class="stat"><div class="l">Win / Loss / BE</div><div class="v"><span class="pos">${st.wins}</span> / <span class="neg">${st.losses}</span> / <span class="zero">${st.be}</span></div><div class="s">Win rate ${pct(st.winRate)}</div></div>
     <div class="stat"><div class="l">Rules followed</div><div class="v">${pct(st.rulesScore)}</div><div class="s">Average rule score</div></div>
@@ -1610,7 +1623,7 @@ function viewLog(){
   const st=stats(list);
   const fmt=(k,v,z)=>{if(v==null||v==='')return '—';
     if(['entry','exit','sl0','slF','tp0','tpF'].includes(k))return Number(v).toFixed(priceDec(z.t.pair));
-    if(k==='pnl')return `<b class="${cls(v)}">${money(v)}</b>`;if(k==='risk')return money(v,false);
+    if(k==='pnl')return `<b class="${cls(v)}">${money(v)}</b><span class="pctsm ${cls(v)}">${fmtPct(tradePct(z))}</span>`;if(k==='risk')return money(v,false);
     if(k==='r')return `<span class="${cls(v)}">${v.toFixed(2)}R</span>`;if(k==='rr')return '1:'+v.toFixed(2);
     if(k==='pips'||k==='res')return (k==='res'&&v>0?'+':'')+v.toFixed(1);if(k==='dur')return fmtDur(v);
     if(k==='outcome')return `<span class="pill ${v}">${v}</span>`;if(k==='dir')return `<span class="pill ${v}">${v}</span>`;
@@ -1760,22 +1773,22 @@ function viewCalendar(embed){
   const all=filtered({noDate:true}).filter(z=>z.r.closed&&z.r.day);
   const byDay={};all.forEach(z=>{(byDay[z.r.day]=byDay[z.r.day]||[]).push(z);});
   const monthKey=`${y}-${pad(m+1)}`;const monthList=all.filter(z=>z.r.day.startsWith(monthKey));const ms=stats(monthList);
-  const today=ymd(n);let cells='';let weekP=0,weekN=0;const weeks=[];
+  const today=ymd(n);let cells='';let weekP=0,weekN=0,weekPc=0;const weeks=[];
   const totalCells=Math.ceil((startOff+days)/7)*7;
   for(let i=0;i<totalCells;i++){
-    const d=new Date(Date.UTC(y,m,1-startOff+i));const key=ymd(d);const inM=d.getUTCMonth()===m;const arr=inM?(byDay[key]||[]):[];const p=sumBy(arr,z=>z.r.pnl);
-    if(inM){weekP+=p;weekN+=arr.length;}
-    cells+=`<div class="cell ${!inM?'out':''} ${arr.length?(p>0?'w':p<0?'l':''):''} ${key===today?'today':''}"><span class="d">${d.getUTCDate()}</span>${arr.length?`<span class="p ${cls(p)}"><span class="full">${money(p)}</span><span class="short">${moneyShort(p)}</span></span><span class="note"><span class="full">${arr.length} trade${arr.length>1?'s':''}</span><span class="short">${arr.length} tr</span></span>`:''}</div>`;
-    if(i%7===6){cells+=`<div class="cell wk wkcol"><span class="d">Week ${weeks.length+1}</span>${weekN?`<span class="p ${cls(weekP)}">${money(weekP)}</span><span class="note">${weekN} trade${weekN>1?'s':''}</span>`:'<span class="note" style="margin-top:auto">No trades</span>'}</div>`;weeks.push({p:weekP,n:weekN});weekP=0;weekN=0;}
+    const d=new Date(Date.UTC(y,m,1-startOff+i));const key=ymd(d);const inM=d.getUTCMonth()===m;const arr=inM?(byDay[key]||[]):[];const p=sumBy(arr,z=>z.r.pnl);const pc=arr.length?sumPct(arr):null;
+    if(inM){weekP+=p;weekN+=arr.length;if(pc!=null)weekPc+=pc;}
+    cells+=`<div class="cell ${!inM?'out':''} ${arr.length?(p>0?'w':p<0?'l':''):''} ${key===today?'today':''}"><span class="d">${d.getUTCDate()}</span>${arr.length?`<span class="p ${cls(p)}"><span class="full">${money(p)}</span><span class="short">${moneyShort(p)}</span></span>${pc!=null?`<span class="pc ${cls(pc)}">${fmtPct(pc,pc&&Math.abs(pc)<10?2:1)}</span>`:''}<span class="note"><span class="full">${arr.length} trade${arr.length>1?'s':''}</span><span class="short">${arr.length} tr</span></span>`:''}</div>`;
+    if(i%7===6){cells+=`<div class="cell wk wkcol"><span class="d">Week ${weeks.length+1}</span>${weekN?`<span class="p ${cls(weekP)}">${money(weekP)}</span><span class="pc ${cls(weekPc)}">${fmtPct(weekPc)}</span><span class="note">${weekN} trade${weekN>1?'s':''}</span>`:'<span class="note" style="margin-top:auto">No trades</span>'}</div>`;weeks.push({p:weekP,n:weekN,pc:weekPc});weekP=0;weekN=0;weekPc=0;}
   }
   const label=first.toLocaleDateString(undefined,{month:'long',year:'numeric',timeZone:'UTC'});
   return `${embed?'<div class="card" id="sec-cal"><h2>Calendar</h2>':`<div class="topbar"><div><h1>Calendar</h1><div class="sub">Daily P&amp;L and number of trades. Weekly totals are on the right.</div></div>${filterBar({noRange:true})}</div>`}
   <div class="row" style="justify-content:space-between;margin-bottom:14px">
     <div class="row"><button class="btn sm" aria-label="Previous month" onclick="calMove(-1)">‹</button><h2 style="margin:0;min-width:170px;text-align:center">${label}</h2><button class="btn sm" aria-label="Next month" onclick="calMove(1)">›</button><button class="btn sm" onclick="S.calMonth=null;render()">Today</button></div>
-    <div class="wlb"><div><b class="${cls(ms.pnl)}">${money(ms.pnl)}</b>Month P&amp;L</div><div><b>${ms.n}</b>Trades</div><div><b>${pct(ms.winRate)}</b>Win rate</div><div><b>${monthList.length?new Set(monthList.map(z=>z.r.day)).size:0}</b>Trading days</div></div>
+    <div class="wlb"><div><b class="${cls(ms.pnl)}">${money(ms.pnl)}${sumPct(monthList)!=null?` <span class="pctsm">${fmtPct(sumPct(monthList))}</span>`:''}</b>Month P&amp;L</div><div><b>${ms.n}</b>Trades</div><div><b>${pct(ms.winRate)}</b>Win rate</div><div><b>${monthList.length?new Set(monthList.map(z=>z.r.day)).size:0}</b>Trading days</div></div>
   </div>
   <div class="cal">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<div class="dh">${d}</div>`).join('')}<div class="dh wkcol">Week</div>${cells}</div>
-  ${embed?'</div>':`<div class="card" style="margin-top:16px"><h2>Weekly summary</h2><div class="grid g4">${weeks.map((w,i)=>`<div class="stat"><div class="l">Week ${i+1}</div><div class="v ${cls(w.p)}">${money(w.p)}</div><div class="s">${w.n} trades</div></div>`).join('')}</div></div>`}`;
+  ${embed?'</div>':`<div class="card" style="margin-top:16px"><h2>Weekly summary</h2><div class="grid g4">${weeks.map((w,i)=>`<div class="stat"><div class="l">Week ${i+1}</div><div class="v ${cls(w.p)}">${money(w.p)}<span class="pctsm">${w.n?fmtPct(w.pc):''}</span></div><div class="s">${w.n} trades</div></div>`).join('')}</div></div>`}`;
 }
 function calMove(d){const c=S.calMonth;let m=c.m+d,y=c.y;if(m<0){m=11;y--;}if(m>11){m=0;y++;}S.calMonth={y,m};render();}
 
@@ -1839,17 +1852,19 @@ function mistakeCostCard(c){
 function whatWorksCard(c){
   const DOW=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const MIN=5;const verdict=g=>g.n<MIN?['note',`Too few trades yet (${g.n} of ${MIN})`]:g.pnl/g.n>0?['pos','✅ Making money — keep doing this']:['neg','❌ Losing money — fix it or stop'];
-  const sec=(title,groups)=>groups.length?`<tr class="nw-day"><td colspan="5"><b>${title}</b></td></tr>`+groups.sort((a,b)=>b.pnl/b.n-a.pnl/a.n).map(g=>{const [vc,vt]=verdict(g);
-    return `<tr style="cursor:default"><td><b>${esc(g.k)}</b></td><td class="num">${g.n}</td><td class="num">${pct(g.winRate)}</td><td class="num ${cls(g.pnl/g.n)}"><b>${money(g.pnl/g.n)}</b></td><td class="${vc}">${vt}</td></tr>`;}).join(''):'';
+  const avgPct=arr=>{const v=sumPct(arr);return v!=null&&arr.length?v/arr.length:null;};
+  const sec=(title,keyFn)=>{const groups=groupStats(c,keyFn);return groups.length?`<tr class="nw-day"><td colspan="5"><b>${title}</b></td></tr>`+groups.sort((a,b)=>b.pnl/b.n-a.pnl/a.n).map(g=>{const [vc,vt]=verdict(g);const ap=avgPct(c.filter(z=>[].concat(keyFn(z)).includes(g.k)));
+    return `<tr style="cursor:default"><td><b>${esc(g.k)}</b></td><td class="num">${g.n}</td><td class="num">${pct(g.winRate)}</td><td class="num ${cls(g.pnl/g.n)}"><b>${money(g.pnl/g.n)}</b><span class="pctsm">${fmtPct(ap)}</span></td><td class="${vc}">${vt}</td></tr>`;}).join(''):'';};
   const st=stats(c);const avgTrade=c.length?st.pnl/c.length:null;
+  const apAll=avgPct(c),apW=avgPct(c.filter(z=>z.r.outcome==='Win')),apL=avgPct(c.filter(z=>z.r.outcome==='Loss'));
   return `<div class="card" style="margin-top:16px"><h2>What's working — and what isn't</h2>
     <div class="sub" style="margin:-6px 0 12px"><b>Average per trade</b> = total profit ÷ number of trades. If it's <b class="pos">positive</b>, that thing makes you money over time — even if you lose some trades. If it's <b class="neg">negative</b>, you lose money doing it, even with a good win rate.</div>
     <div class="grid g3" style="margin-bottom:12px">
-      <div class="stat"><div class="l">Average per trade</div><div class="v ${cls(avgTrade)}">${money(avgTrade)}</div><div class="s">Each trade you take ${avgTrade>0?'makes':'costs'} you this on average</div></div>
-      <div class="stat"><div class="l">When you win</div><div class="v pos">${money(st.avgW,false)}</div><div class="s">average winning trade</div></div>
-      <div class="stat"><div class="l">When you lose</div><div class="v neg">${money(st.avgL!=null?Math.abs(st.avgL):null,false)}</div><div class="s">average losing trade${st.avgW&&st.avgL?` · wins are ${(st.avgW/Math.abs(st.avgL)).toFixed(1)}× your losses`:''}</div></div></div>
+      <div class="stat"><div class="l">Average per trade</div><div class="v ${cls(avgTrade)}">${money(avgTrade)}<span class="pctsm">${fmtPct(apAll)}</span></div><div class="s">Each trade you take ${avgTrade>0?'makes':'costs'} you this on average</div></div>
+      <div class="stat"><div class="l">When you win</div><div class="v pos">${money(st.avgW,false)}<span class="pctsm">${fmtPct(apW)}</span></div><div class="s">average winning trade</div></div>
+      <div class="stat"><div class="l">When you lose</div><div class="v neg">${money(st.avgL!=null?Math.abs(st.avgL):null,false)}<span class="pctsm">${fmtPct(apL)}</span></div><div class="s">average losing trade${st.avgW&&st.avgL?` · wins are ${(st.avgW/Math.abs(st.avgL)).toFixed(1)}× your losses`:''}</div></div></div>
     <div class="tablewrap"><table><thead><tr><th>What</th><th class="num">Trades</th><th class="num">Win rate</th><th class="num">Average per trade</th><th>Verdict</th></tr></thead><tbody>
-    ${sec('Setups',groupStats(c,z=>z.t.setups||[]))}${sec('Pairs',groupStats(c,z=>z.t.pair))}${sec('Sessions',groupStats(c,z=>z.r.session))}${sec('Days',groupStats(c,z=>z.r.day?DOW[new Date(z.r.day+'T00:00:00Z').getUTCDay()]:null))}
+    ${sec('Setups',z=>z.t.setups||[])}${sec('Pairs',z=>z.t.pair)}${sec('Sessions',z=>z.r.session)}${sec('Days',z=>z.r.day?DOW[new Date(z.r.day+'T00:00:00Z').getUTCDay()]:null)}
     </tbody></table></div><div class="note" style="margin-top:8px">Verdicts need at least ${MIN} trades — fewer than that is mostly luck.</div></div>`;
 }
 function viewInsights(embed){
@@ -2051,7 +2066,10 @@ function viewMoney(){
   const stillIn=sumBy(accts.filter(p=>acctType(p)==='personal'),p=>(num(p.balance)||0)+sumBy(acctEvents(p.id),e=>e.d));
   const allGot=sumBy(allCs,cashGot);const net=allGot+stillIn-allSpent;
   // month-by-month calendar: invested vs profit taken
-  const months={};allCs.forEach(c=>{const m=String(c.date).slice(0,7);(months[m]=months[m]||{spent:0,got:0});months[m].spent+=cashSpent(c);months[m].got+=cashGot(c);});
+  // account size for "% of account": starting balance, or total deposits for personal accounts started at 0
+  const acctSize=id=>{const p=S.settings.platforms.find(x=>x.id===id);return num(p?.balance)||sumBy(cashList(id).filter(x=>x.type==='deposit'),x=>num(x.amount))||null;};
+  const gotPct=c=>{const g=cashGot(c),sz=acctSize(c.platform);return g&&sz?g/sz*100:0;};
+  const months={};allCs.forEach(c=>{const m=String(c.date).slice(0,7);(months[m]=months[m]||{spent:0,got:0,gotPct:0});months[m].spent+=cashSpent(c);months[m].got+=cashGot(c);months[m].gotPct+=gotPct(c);});
   const calYears=[...new Set(Object.keys(months).map(m=>m.slice(0,4)))].sort().reverse();
   const cy=calYears.includes(S.calYear)?S.calYear:calYears[0];
   const mname=i=>new Date(Date.UTC(2000,i,1)).toLocaleDateString(undefined,{month:'short',timeZone:'UTC'});
@@ -2065,7 +2083,7 @@ function viewMoney(){
   const ys=(()=>{if(!cy)return null;const ms=Object.keys(months).filter(m=>m.startsWith(cy));const inv=sumBy(ms,m=>months[m].spent),tk=sumBy(ms,m=>months[m].got);
     const best=ms.filter(m=>months[m].got>0).sort((a,b)=>months[b].got-months[a].got)[0];
     const br=failedJ.filter(x=>x.start.startsWith(cy)).length+allCs.filter(c=>c.type==='deposit'&&String(c.date).startsWith(cy)&&acctType(S.settings.platforms.find(p=>p.id===c.platform))==='personal').length;
-    return {inv,tk,net:tk-inv,roi:inv?(tk-inv)/inv*100:null,best,br};})();
+    return {inv,tk,tkPct:sumBy(ms,m=>months[m].gotPct),net:tk-inv,roi:inv?(tk-inv)/inv*100:null,best,br};})();
   // ROI by prop journey and where profit came from
   const roiTxt=(net,inv)=>inv?`<span class="${cls(net)}">${(net/inv*100>0?'+':'')+(net/inv*100).toFixed(0)}%</span>`:'—';
   const srcRows=Object.values(allCs.filter(c=>cashGot(c)>0).reduce((g,c)=>{const p=S.settings.platforms.find(x=>x.id===c.platform);const j=p?.type==='prop'?journeys().find(j=>j.chain.some(x=>x.id===p.id)):null;
@@ -2094,16 +2112,16 @@ function viewMoney(){
     <div><h3 style="margin:0 0 6px">Personal · ${persN} top-up${persN===1?'':'s'} · ${money(persLost,false)} lost</h3>${persRows.length?`<div class="tablewrap"><table><thead><tr><th>Account</th><th class="num">Deposits</th><th class="num">Money lost</th></tr></thead><tbody>${persRows.map(r=>`<tr style="cursor:default"><td><b>${esc(r.p.name)}</b></td><td class="num">${r.n}</td><td class="num ${r.lost?'neg':''}">${money(r.lost,false)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="note">No personal deposits.</div>'}</div></div>
     <div class="note" style="margin-top:8px">Money lost on personal accounts = starting balance + deposits − withdrawals − balance left now.</div></div>`:''}
   ${srcRows.length?`<div class="card" style="margin-top:16px"><h2>Where your profit came from</h2><div class="note" style="margin:-6px 0 10px">Every dollar of profit taken, traced back to the account (and prop journey) that made it.</div>
-    <div class="tablewrap"><table><thead><tr><th>Account</th><th>Journey</th><th class="num">Payouts</th><th>Last one</th><th class="num">Profit taken</th><th class="num">Share</th></tr></thead><tbody>
-    ${srcRows.map(r=>`<tr style="cursor:default"><td><b>${esc(r.p?.name||'Unknown')}</b></td><td>${r.j?esc(r.j.root.name):'—'}</td><td class="num">${r.n}</td><td>${esc(r.last)}</td><td class="num pos"><b>${money(r.amt,false)}</b></td><td class="num">${(r.amt/srcTotal*100).toFixed(0)}%</td></tr>`).join('')}</tbody></table></div></div>`:''}
+    <div class="tablewrap"><table><thead><tr><th>Account</th><th>Journey</th><th class="num">Payouts</th><th>Last one</th><th class="num">Profit taken</th><th class="num">% of account</th><th class="num">Share of all profit</th></tr></thead><tbody>
+    ${srcRows.map(r=>`<tr style="cursor:default"><td><b>${esc(r.p?.name||'Unknown')}</b></td><td>${r.j?esc(r.j.root.name):'—'}</td><td class="num">${r.n}</td><td>${esc(r.last)}</td><td class="num pos"><b>${money(r.amt,false)}</b></td><td class="num pos">${r.p&&acctSize(r.p.id)?fmtPct(r.amt/acctSize(r.p.id)*100,1):'—'}</td><td class="num">${(r.amt/srcTotal*100).toFixed(0)}%</td></tr>`).join('')}</tbody></table></div></div>`:''}
   ${cy?`<div class="card" style="margin-top:16px"><div class="row" style="justify-content:space-between;align-items:center"><div><h2 style="margin:0">Month by month</h2><div class="note">Amount invested and profit taken each month.</div></div>
     <div class="row" style="gap:6px;align-items:center"><button class="btn sm" aria-label="Previous year" ${calYears.indexOf(cy)<calYears.length-1?'':'disabled'} onclick="S.calYear='${calYears[calYears.indexOf(cy)+1]||cy}';render()">◀</button><b style="min-width:52px;text-align:center;font-size:18px">${cy}</b><button class="btn sm" aria-label="Next year" ${calYears.indexOf(cy)>0?'':'disabled'} onclick="S.calYear='${calYears[calYears.indexOf(cy)-1]||cy}';render()">▶</button></div></div>
     <div class="grid g4" style="margin:12px 0">
       <div class="stat"><div class="l">Invested in ${cy}</div><div class="v">${money(ys.inv,false)}</div></div>
-      <div class="stat"><div class="l">Profit taken in ${cy}</div><div class="v pos">${money(ys.tk,false)}</div>${ys.best?`<div class="s">Best month: ${new Date(ys.best+'-01T00:00:00Z').toLocaleDateString(undefined,{month:'long',timeZone:'UTC'})}</div>`:''}</div>
+      <div class="stat"><div class="l">Profit taken in ${cy}</div><div class="v pos">${money(ys.tk,false)}${ys.tkPct?`<span class="pctsm">${fmtPct(ys.tkPct,1)} of acct</span>`:''}</div>${ys.best?`<div class="s">Best month: ${new Date(ys.best+'-01T00:00:00Z').toLocaleDateString(undefined,{month:'long',timeZone:'UTC'})}</div>`:''}</div>
       <div class="stat"><div class="l">Net for ${cy}</div><div class="v ${cls(ys.net)}">${money(ys.net)}</div><div class="s">ROI ${ys.roi==null?'—':(ys.roi>0?'+':'')+ys.roi.toFixed(1)+'%'}</div></div>
       <div class="stat"><div class="l">Breaches in ${cy}</div><div class="v ${ys.br?'neg':''}">${ys.br}</div><div class="s">failed challenges + personal top-ups</div></div></div>
-    ${[cy].map(y=>`<div class="mcal">${Array.from({length:12},(_,i)=>{const r=months[y+'-'+pad(i+1)];return `<div class="mcell ${r?(r.got>r.spent?'w':r.spent?'l':''):'empty'}"><div class="mn">${mname(i)}</div>${r?`<div class="mrow"><span>Invested</span><b>${r.spent?money(r.spent,false):'—'}</b></div><div class="mrow"><span>Profit taken</span><b class="${r.got?'pos':''}">${r.got?money(r.got,false):'—'}</b></div>`:''}</div>`;}).join('')}</div>`).join('')}</div>`:''}
+    ${[cy].map(y=>`<div class="mcal">${Array.from({length:12},(_,i)=>{const r=months[y+'-'+pad(i+1)];return `<div class="mcell ${r?(r.got>r.spent?'w':r.spent?'l':''):'empty'}"><div class="mn">${mname(i)}</div>${r?`<div class="mrow"><span>Invested</span><b>${r.spent?money(r.spent,false):'—'}</b></div><div class="mrow"><span>Profit taken</span><b class="${r.got?'pos':''}">${r.got?money(r.got,false):'—'}</b></div>${r.gotPct?`<div class="mrow"><span></span><b class="pos" style="font-size:11px">${fmtPct(r.gotPct,1)} of acct</b></div>`:''}`:''}</div>`;}).join('')}</div>`).join('')}</div>`:''}
   ${journeys().length&&pid==='all'?`<div class="card" style="margin-top:16px"><h2>Prop firm journeys</h2><div class="note" style="margin:-6px 0 10px">Each challenge from purchase to funded, with the fee you paid and what it gave back.</div>
     <div class="tablewrap"><table><thead><tr><th>Journey</th><th>Stages</th><th>Status</th><th class="num">Fee paid</th><th class="num">You received</th><th class="num">Net result</th><th class="num">ROI</th></tr></thead><tbody>
     ${journeys().map(j=>({j,s:journeyStart(j)})).sort((a,b)=>b.s.localeCompare(a.s)).map(({j})=>`<tr style="cursor:default"><td><b>${esc(j.root.name)}</b><div class="note">${PROGRAMS[j.prog]?.label||''}</div></td><td>${journeyPath(j)}</td><td><span class="pill ${j.status.startsWith('Funded')&&!j.status.includes('breached')?'Long':j.status==='Failed'||j.status.includes('breached')?'Loss':j.status.startsWith('Passed')?'Win':'Open'}">${j.status}</span></td><td class="num">${money(j.fee,false)}</td><td class="num">${money(j.got,false)}</td><td class="num ${cls(j.net)}"><b>${money(j.net)}</b></td><td class="num"><b>${roiTxt(j.net,j.fee)}</b></td></tr>`).join('')}
@@ -2270,7 +2288,7 @@ function tradeSideHTML(t){
   <div class="kv" style="margin-top:10px">
     <div><span>Entry</span><b>${f(t.entry)}</b></div><div><span>Initial SL / TP</span><b><span class="neg">${f(t.sl0)}</span> / <span class="pos">${f(t.tp0)}</span></b></div>
     ${r.slMoved||r.tpMoved?`<div><span>Final SL / TP</span><b>${f(t.slF)} / ${f(t.tpF)}</b></div>`:''}
-    <div><span>Exit</span><b>${f(t.exit)}</b></div><div><span>Result</span><b class="${cls(r.pnl)}">${r.closed?money(r.pnl):'Open'}${r.rMult!=null?' · '+r.rMult.toFixed(2)+'R':''}</b></div>
+    <div><span>Exit</span><b>${f(t.exit)}</b></div><div><span>Result</span><b class="${cls(r.pnl)}">${r.closed?money(r.pnl)+(fmtPct(tradePct({t,r}))?' ('+fmtPct(tradePct({t,r}))+')':''):'Open'}${r.rMult!=null?' · '+r.rMult.toFixed(2)+'R':''}</b></div>
     <div><span>Outcome</span><b><span class="pill ${r.outcome}">${r.outcome}</span></b></div>
   </div>
   <button class="btn" style="width:100%;justify-content:center;margin-top:14px" onclick="openTrade('${t.id}')">Open trade details</button>`;
