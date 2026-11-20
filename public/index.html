@@ -544,7 +544,7 @@ function calc(t,lite){
     const fees=num(t.fees)||0;
     r.calcPnl=calcPnl!=null?calcPnl-fees:null;
     r.pnl=num(t.pnlOverride)!=null?num(t.pnlOverride):r.calcPnl;
-    r.outcome=Math.abs(r.resultPips)<=S.settings.beTol?'BE':(r.resultPips>0?'Win':'Loss');
+    r.outcome=t.outcomeManual||(Math.abs(r.resultPips)<=S.settings.beTol?'BE':(r.resultPips>0?'Win':'Loss')); // manual: e.g. a trade cancelled by the prop firm counts as BE
     r.tpReached=tp!=null&&(x-tp)*sign>=-Math.max(S.settings.beTol,0.1)*sp.pip;
     r.slHit=sl!=null&&(x-sl)*sign<=Math.max(S.settings.beTol,0.1)*sp.pip;
     r.earlyExit=tp!=null&&!r.tpReached&&!r.slHit;
