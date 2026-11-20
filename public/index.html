@@ -2139,9 +2139,15 @@ ${JSON.stringify(data)}`;
 /* ---------------- money ---------------- */
 // trading P&L that is real money: personal accounts and funded prop accounts (not challenge stages or paper)
 function realPnlAcct(id){const p=S.settings.platforms.find(x=>x.id===id);const t=acctType(p);return t==='personal'||(t==='prop'&&p.stage==='funded');}
+// Money tab cash for an account: a prop stage also counts its journey's challenge fee/refund (paid on Stage 1),
+// so Stage 2 or Funded don't show $0 invested. Balances are not affected (acctEvents still uses cashList).
+function moneyCash(pid){const p=pid&&pid!=='all'?S.settings.platforms.find(x=>x.id===pid):null;
+  if(p?.type==='prop'){const j=journeys().find(j=>j.chain.some(x=>x.id===pid));if(j){const ids=j.chain.map(x=>x.id);
+    return cashList('all').filter(c=>c.platform===pid||(ids.includes(c.platform)&&(c.type==='fee'||c.type==='refund')));}}
+  return cashList(pid);}
 function moneyRows(pid,year){
   const inY=d=>year==='all'||String(d).startsWith(year);
-  const cs=cashList(pid).filter(c=>inY(c.date));
+  const cs=moneyCash(pid).filter(c=>inY(c.date));
   const trades=enriched().filter(z=>(pid==='all'||z.t.platform===pid)&&realPnlAcct(z.t.platform)&&z.r.closed&&z.r.pnl!=null&&z.r.day&&inY(z.r.day));
   return {cs,trades};
 }
@@ -2155,7 +2161,7 @@ function viewMoney(){
   const spent=dep+fee,got=wd+payMine+ref,tp=sumBy(trades,z=>z.r.pnl);
   // all-time ROI: what you got + money still in personal accounts - what you put in
   const accts=S.settings.platforms.filter(p=>pid==='all'||p.id===pid);
-  const allCs=cashList(pid).filter(c=>acctType(S.settings.platforms.find(p=>p.id===c.platform))!=='paper');const allSpent=sumBy(allCs,cashSpent)+sumBy(accts.filter(p=>acctType(p)==='personal'),p=>num(p.balance)||0);
+  const allCs=moneyCash(pid).filter(c=>acctType(S.settings.platforms.find(p=>p.id===c.platform))!=='paper');const allSpent=sumBy(allCs,cashSpent)+sumBy(accts.filter(p=>acctType(p)==='personal'),p=>num(p.balance)||0);
   const stillIn=sumBy(accts.filter(p=>acctType(p)==='personal'),p=>(num(p.balance)||0)+sumBy(acctEvents(p.id),e=>e.d));
   const allGot=sumBy(allCs,cashGot);const net=allGot+stillIn-allSpent;
   // month-by-month calendar: invested vs profit taken
@@ -2184,8 +2190,8 @@ function viewMoney(){
   const srcTotal=sumBy(srcRows,r=>r.amt);
   const yrs={};[...enriched().filter(z=>(pid==='all'||z.t.platform===pid)&&realPnlAcct(z.t.platform)&&z.r.closed&&z.r.pnl!=null&&z.r.day),].forEach(z=>{const y=z.r.day.slice(0,4);(yrs[y]=yrs[y]||{pnl:0,spent:0,got:0}).pnl+=z.r.pnl;});
   allCs.forEach(c=>{const y=String(c.date).slice(0,4);(yrs[y]=yrs[y]||{pnl:0,spent:0,got:0});yrs[y].spent+=cashSpent(c);yrs[y].got+=cashGot(c);});
-  const acRows=S.settings.platforms.map(p=>{const c=cashList(p.id);const ev=acctEvents(p.id);const ps=propStatus(p);
-    return {p,spent:acctType(p)==='paper'?0:sumBy(c,cashSpent)+(acctType(p)==='personal'?(num(p.balance)||0):0),got:sumBy(c,cashGot),pnl:realPnlAcct(p.id)?sumBy(ev.filter(e=>e.k==='t'),e=>e.d):null,bal:(num(p.balance)||0)+sumBy(ev,e=>e.d),status:ps?ps.status:''};}).filter(r=>pid==='all'||r.p.id===pid);
+  const acRows=S.settings.platforms.map(p=>{const c=moneyCash(p.id);const feeElsewhere=p.type==='prop'&&c.some(x=>x.platform!==p.id&&x.type==='fee');const ev=acctEvents(p.id);const ps=propStatus(p);
+    return {p,spent:acctType(p)==='paper'?0:sumBy(c,cashSpent)+(acctType(p)==='personal'?(num(p.balance)||0):0),got:sumBy(c,cashGot),pnl:realPnlAcct(p.id)?sumBy(ev.filter(e=>e.k==='t'),e=>e.d):null,bal:(num(p.balance)||0)+sumBy(ev,e=>e.d),status:ps?ps.status:'',feeElsewhere};}).filter(r=>pid==='all'||r.p.id===pid);
   return `<div class="topbar"><div><h1>Money</h1><div class="sub">Deposits, withdrawals, challenge fees and payouts — your real return on trading.</div></div>
     <div class="filters"><select class="sel" aria-label="Year" onchange="S.moneyYear=this.value;render()"><option value="all">All years</option>${years.map(y=>`<option ${yr===y?'selected':''}>${y}</option>`).join('')}</select>${filterBar({noRange:true}).replace('<div class="filters">','').replace(/<\/div>\s*$/,'')}
     <button class="btn primary" onclick="editCash()">+ Add transaction</button></div></div>
@@ -2221,7 +2227,7 @@ function viewMoney(){
     </tbody></table></div><div class="note" style="margin-top:8px">Tip: record the challenge fee on the first stage of each journey, and payouts / fee refunds on the funded account.</div></div>`:''}
   <div class="card" style="margin-top:16px"><h2>By account</h2><div class="tablewrap"><table><thead><tr><th>Account</th><th>Type</th><th class="num">Invested</th><th class="num">Profit taken</th><th class="num">Balance now</th><th class="num">Net</th><th class="num">ROI</th></tr></thead><tbody>
     ${acRows.map(r=>{const t=acctType(r.p);const net=t==='personal'?r.got+Math.max(0,r.bal)-r.spent:null;
-      return `<tr style="cursor:default"><td><b>${esc(r.p.name)}</b>${r.status?` <span class="pill ${({Passed:'Win',Failed:'Loss',Active:'Open',Funded:'Long'})[r.status]}">${r.status}</span>`:''}</td><td>${acctLabel(r.p)}</td><td class="num">${money(r.spent,false)}</td><td class="num">${money(r.got,false)}</td><td class="num">${money(r.bal,false)}</td>
+      return `<tr style="cursor:default"><td><b>${esc(r.p.name)}</b>${r.status?` <span class="pill ${({Passed:'Win',Failed:'Loss',Active:'Open',Funded:'Long'})[r.status]}">${r.status}</span>`:''}</td><td>${acctLabel(r.p)}</td><td class="num">${money(r.spent,false)}${r.feeElsewhere?'<div class="note" style="font-size:11px">journey fee</div>':''}</td><td class="num">${money(r.got,false)}</td><td class="num">${money(r.bal,false)}</td>
       <td class="num ${cls(net)}">${net==null?(t==='prop'?'<span class="note" title="Fee and payouts sit on different stages — see Prop firm journeys">journey ↑</span>':'—'):money(net)}</td><td class="num">${net==null?'—':roiTxt(net,r.spent)}</td></tr>`;}).join('')}</tbody></table></div>
     <div class="note" style="margin-top:8px">Personal accounts: invested includes the starting balance plus deposits; net = profit taken + balance left − invested. Prop accounts: the fee is on the first stage and payouts on the funded stage, so their ROI is shown per journey above. Paper accounts are not counted as real money.</div></div>
   <div class="card" style="margin-top:16px"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Transactions</h2><button class="btn sm" onclick="editCash()">+ Add</button></div>
