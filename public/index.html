@@ -268,6 +268,9 @@ td.num,th.num{text-align:right}
 .cell .short{display:none}
 .prop2{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}
 @media (max-width:1100px){.prop2{grid-template-columns:1fr}}
+.scorebadge{text-align:center;min-width:92px;padding:8px 14px;border-radius:16px;background:var(--surface2);border:1px solid var(--line)}
+.scorebadge .sv{font-size:40px;font-weight:800;line-height:1}.scorebadge .sl{font-size:12px;font-weight:700;color:var(--muted);margin-top:4px}
+.scrow{margin-bottom:10px}.scbar{height:8px;border-radius:6px;background:var(--surface2);overflow:hidden;margin:4px 0 2px}.scbar span{display:block;height:100%;border-radius:6px}
 .mcal{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
 .mcell{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--surface);min-height:74px;font-size:12px}
 .mcell.empty{opacity:.45}.mcell.w{background:var(--profit-soft);border-color:transparent}.mcell.l{background:var(--surface2)}
@@ -1779,6 +1782,47 @@ function calMove(d){const c=S.calMonth;let m=c.m+d,y=c.y;if(m<0){m=11;y--;}if(m>
 /* ---------------- insights ---------------- */
 function groupStats(list,keyFn){const g={};list.forEach(z=>{[].concat(keyFn(z)).forEach(k=>{if(k==null||k==='')return;(g[k]=g[k]||[]).push(z);});});return Object.entries(g).map(([k,arr])=>({k,...stats(arr)}));}
 const DUR=[['< 15 min',0,15],['15–60 min',15,60],['1–4 h',60,240],['4–24 h',240,1440],['> 1 day',1440,1e9]];
+/* trader score (0-100 per area, like a game rating). Each area maps a real number to 0-100; overall is a weighted average. */
+const SCORE_MIN=10;
+function traderScore(c){
+  if(c.length<SCORE_MIN)return null;
+  const st=stats(c);const cl=x=>Math.max(0,Math.min(100,x));
+  // drawdown: biggest drop from a peak in running P&L, as % of a typical account size
+  const seq=c.slice().sort((a,b)=>((a.r.tClose??a.r.tOpen)||0)-((b.r.tClose??b.r.tOpen)||0));let run=0,peak=0,dd=0;seq.forEach(z=>{run+=z.r.pnl;peak=Math.max(peak,run);dd=Math.max(dd,peak-run);});
+  const sizes=[...new Set(c.map(z=>z.t.platform))].map(id=>{const p=S.settings.platforms.find(x=>x.id===id);return num(p?.balance)||sumBy(cashList(id).filter(x=>x.type==='deposit'),x=>num(x.amount))||0;}).filter(x=>x>0);
+  const base=sizes.length?sumBy(sizes,x=>x)/sizes.length:null,ddPct=base?dd/base*100:null;
+  const rf=dd>0?st.pnl/dd:(st.pnl>0?Infinity:0);
+  // consistency: no single day should make most of the profit (like prop firm consistency rules)
+  const days={};c.forEach(z=>{if(z.r.day)days[z.r.day]=(days[z.r.day]||0)+z.r.pnl;});const dv=Object.values(days);const posDays=dv.filter(v=>v>0);
+  const bestShare=st.pnl>0?Math.max(...dv)/st.pnl*100:null;
+  const consScore=st.pnl>0?cl(100-(bestShare-20)*1.25):cl(posDays.length/(dv.length||1)*50);
+  const A=[
+    {k:'Win rate',v:st.winRate!=null?(st.winRate*100).toFixed(0)+'%':'—',s:cl((st.winRate||0)/0.6*100),w:15,d:'How often you win. 60% or more = full score.',tip:'Be pickier: only take your A+ setups, wait for confirmation.'},
+    {k:'Profit factor',v:st.pf==null?'—':st.pf===Infinity?'∞':st.pf.toFixed(2),s:st.pf===Infinity?100:cl(((st.pf||0)-0.5)/2*100),w:25,d:'Money won ÷ money lost. Above 1 = profitable, 2.5+ = full score.',tip:'Cut losers faster and let winners run to target.'},
+    {k:'Win vs loss size',v:st.rr!=null?st.rr.toFixed(1)+'×':'—',s:cl((st.rr||0)/2.5*100),w:15,d:'Average win ÷ average loss. 2.5× or more = full score.',tip:'Aim for at least 1:2 reward to risk and don\'t close winners early.'},
+    {k:'Drawdown',v:ddPct!=null?ddPct.toFixed(1)+'%':money(dd,false),s:ddPct!=null?cl(100-ddPct*10):50,w:15,d:'Biggest drop from a peak, as % of a typical account. 0% = full score, 10%+ = 0.',tip:'Lower your risk per trade and respect your daily stop.'},
+    {k:'Recovery',v:rf===Infinity?'∞':rf.toFixed(1),s:rf===Infinity?100:cl(rf/3*100),w:10,d:'Net profit ÷ biggest drawdown. 3 or more = full score.',tip:'After a losing run, size down until you\'re back in profit.'},
+    {k:'Consistency',v:bestShare!=null?`best day ${bestShare.toFixed(0)}%`:`${posDays.length}/${dv.length} green days`,s:consScore,w:10,d:'Is your profit spread over many days? Best day ≤ 20% of profit = full score.',tip:'Keep the same risk every day; avoid one big "hero" trade.'},
+    {k:'Discipline',v:st.rulesScore!=null?(st.rulesScore*100).toFixed(0)+'%':'—',s:cl((st.rulesScore||0)*100),w:10,d:'Share of your rules followed on each trade.',tip:'Read your rules before every trade and tick them honestly.'}];
+  const total=Math.round(sumBy(A,a=>a.s*a.w)/sumBy(A,a=>a.w));
+  const grade=total>=80?['Excellent','pos']:total>=60?['Good','pos']:total>=40?['Average','']:['Needs work','neg'];
+  return {A,total,grade,n:c.length};
+}
+function scoreCard(c){
+  const sc=traderScore(c);
+  if(!sc)return `<div class="card" style="margin-bottom:16px"><h2>Trader score</h2><div class="note">Your score appears after ${SCORE_MIN} closed trades in this period (you have ${c.length}). Try “All time” in the filter.</div></div>`;
+  const weak=sc.A.slice().sort((a,b)=>a.s-b.s)[0],strong=sc.A.slice().sort((a,b)=>b.s-a.s)[0];
+  return `<div class="card" style="margin-bottom:16px"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2 style="margin:0">Trader score</h2><div class="note">Your trading rated 0–100 in 7 areas, from ${sc.n} closed trades in this period.</div></div>
+    <div class="scorebadge"><div class="sv ${sc.grade[1]}">${sc.total}</div><div class="sl">${sc.grade[0]}</div></div></div>
+    <div class="grid g2" style="margin-top:10px;align-items:center"><div class="chartbox" style="height:300px"><canvas id="c_score"></canvas></div>
+    <div>${sc.A.map(a=>`<div class="scrow" title="${esc(a.d)}"><div class="row" style="justify-content:space-between"><b>${a.k}</b><span class="note">${esc(a.v)} · <b class="${a.s>=60?'pos':a.s<40?'neg':''}">${Math.round(a.s)}</b></span></div><div class="scbar"><span style="width:${a.s}%;background:${a.s>=60?'var(--profit-fill)':a.s<40?'var(--loss-fill)':'var(--gold)'}"></span></div><div class="note" style="font-size:11px">${esc(a.d)}</div></div>`).join('')}</div></div>
+    <div class="alert ${weak.s<40?'loss':'warn'}" style="margin-top:12px">💪 Strongest: <b>${strong.k}</b> (${Math.round(strong.s)}). 🎯 Work on: <b>${weak.k}</b> (${Math.round(weak.s)}) — ${esc(weak.tip)}</div></div>`;
+}
+function drawScore(c){
+  const cv=$('#c_score');if(!cv)return;const sc=traderScore(c);if(!sc)return;const css=getComputedStyle(document.documentElement);const ac=css.getPropertyValue('--accent').trim(),mu=css.getPropertyValue('--muted').trim(),ln=css.getPropertyValue('--line').trim();
+  charts.score=new Chart(cv,{type:'radar',data:{labels:sc.A.map(a=>a.k),datasets:[{label:'Score',data:sc.A.map(a=>Math.round(a.s)),backgroundColor:ac+'40',borderColor:ac,pointBackgroundColor:ac,borderWidth:2}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{r:{min:0,max:100,ticks:{stepSize:20,display:false},grid:{color:ln},angleLines:{color:ln},pointLabels:{color:mu,font:{size:12,weight:'700'}}}}}});
+}
 /* what each mistake cost: losses on trades with it + profit taken away (e.g. trade cancelled by the prop firm) */
 function mistakeCostCard(c){
   const rows=groupStats(c,z=>z.t.mistakes||[]).map(g=>{const arr=c.filter(z=>(z.t.mistakes||[]).includes(g.k));
@@ -1829,7 +1873,8 @@ function viewInsights(embed){
     <div class="stat"><div class="l">Longest losing streak</div><div class="v neg">${sk.maxL}</div><div class="s">trades in a row</div></div>
     <div class="stat"><div class="l">Best / worst trade</div><div class="v"><span class="pos">${money(st.best)}</span></div><div class="s neg">${money(st.worst)}</div></div>
   </div>`}
-  <div class="grid g3" style="margin-top:${embed?0:16}px">
+  <div style="margin-top:${embed?0:16}px">${scoreCard(c)}</div>
+  <div class="grid g3">
     <div class="card"><h2>P&amp;L by session</h2><div class="chartbox short"><canvas id="c_sess"></canvas></div></div>
     <div class="card"><h2>Win rate by session</h2><div class="chartbox short"><canvas id="c_sessw"></canvas></div></div>
     <div class="card"><h2>P&amp;L by day of week</h2><div class="chartbox short"><canvas id="c_dow"></canvas></div></div>
@@ -1868,6 +1913,7 @@ function drawInsights(){
   if(!$('#c_sess'))return;
   const c=filtered().filter(z=>z.r.closed&&z.r.pnl!=null);const css=getComputedStyle(document.documentElement);
   const P=css.getPropertyValue('--profit-fill').trim(),L=css.getPropertyValue('--loss-fill').trim(),B='#a5b4fc';
+  drawScore(c);
   const PAL=['#7c3aed','#0ea5e9','#f59e0b','#ec4899','#14b8a6','#6366f1','#f97316','#22c55e'];
   const bar=(id,labels,data,o={})=>{charts[id]=new Chart($('#'+id),{type:'bar',data:{labels,datasets:o.datasets||[{data,backgroundColor:data.map((v,i)=>o.palette?PAL[i%PAL.length]:(v>=0?P:L)),borderRadius:8,maxBarThickness:56}]},options:chartOpts(o)});};
   const sessNames=[...S.settings.sessions.map(s=>s.name),'Off-hours'];
