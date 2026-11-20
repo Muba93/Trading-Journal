@@ -372,6 +372,18 @@ tr[hidden]{display:none}
 .dlg-h h2{margin:0;font-size:17px}
 .dlg-b{padding:8px 18px 14px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;min-height:0}
 .dlg{overscroll-behavior:contain}
+/* day journal popup: each question is its own card */
+.dlg-box.daydlg{width:min(640px,100%);max-height:92vh}
+.daydlg .dlg-b{padding:10px 18px 18px;background:var(--bg)}
+.dsec{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;font-size:17px;font-weight:800;color:var(--ink);margin:18px 2px 10px}
+.dsec:first-child{margin-top:6px}.dsec span{font-size:20px}.dsec small{font-size:12px;font-weight:600;color:var(--muted)}
+.dq{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:12px}
+.dql{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:800;color:var(--ink);margin-bottom:12px;line-height:1.3}
+.dqn{flex:0 0 auto;display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:800}
+.dq .seg{display:flex;width:100%}.dq .seg button{flex:1;padding:10px 8px;font-size:14px;font-weight:700}
+.dq .chip{font-size:13px;padding:7px 13px}
+.dq textarea.inp{font-size:14px;min-height:84px}
+@media (max-width:860px){.daydlg .dlg-b{padding:8px 12px 14px}.dq{padding:12px}.dql{font-size:14px}}
 body:has(#dlgRoot .dlg),body:has(.overlay){overflow:hidden} /* page behind a popup doesn't scroll */
 .dlg-f{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
 .pairbtn{width:100%;justify-content:space-between;font-weight:800}
@@ -920,19 +932,19 @@ function renderDayDlg(){
   setTimeout(()=>{const b=document.querySelector('#dlgRoot .dlg-b');if(b)b.scrollTop=sc;});
   dlgOpen(`<div class="dlg-h" style="align-items:flex-start"><div><h2 style="margin:0">📝 ${fmtDay(d)}</h2><div class="note">${trades.length?`${trades.length} trade${trades.length>1?'s':''} · <b class="${cls(p)}">${money(p)}</b> ${fmtPct(pc)}`:'No closed trades on this day'}</div></div><button class="btn sm" aria-label="Close" onclick="dlgClose(null)">✕</button></div>
     <div class="dlg-b">
-    <div class="sect" style="margin-top:4px;border-top:0;padding-top:0">Before trading</div>
-    <div class="f"><label>Today's plan &amp; bias</label>${ta('plan','e.g. Gold bullish above 4020. Only buy from my zone after confirmation. Max 2 trades.')}</div>
-    <div class="f"><label>How I feel before trading</label>${chips('moodBefore')}</div>
-    <div class="sect">After trading</div>
-    <div class="f"><label>Did I follow my plan?</label>${seg('followed',[['Yes','✅ Yes'],['Partly','➖ Partly'],['No','❌ No']])}</div>
-    <div class="f"><label>Did I take trades outside my plan / zones?</label>${seg('outside',[['No','No'],['Yes','Yes']])}</div>
-    <div class="f"><label>How I feel at the end of the day</label>${chips('moodAfter')}</div>
-    <div class="f"><label>Rate my day (discipline, not profit)</label><div class="row" style="gap:4px">${[1,2,3,4,5].map(i=>`<button type="button" class="chip ${n.rating>=i?'on':''}" style="font-size:18px" onclick="dSet('rating',window._day.n.rating===${i}?0:${i},true)">★</button>`).join('')}</div></div>
-    <div class="f"><label>✅ What I did well today</label>${ta('good','e.g. Waited for my zone and confirmation. Stopped after 2 trades.')}</div>
-    <div class="f"><label>❌ What I did badly today</label>${ta('bad','e.g. Entered before my zone because of FOMO. Moved my stop loss.')}</div>
+    <div class="dsec"><span>🌅</span> Before trading <small>fill this in before your first trade</small></div>
+    <div class="dq"><div class="dql"><span class="dqn">1</span>Today's plan &amp; bias</div>${ta('plan','e.g. Gold bullish above 4020. Only buy from my zone after confirmation. Max 2 trades.')}</div>
+    <div class="dq"><div class="dql"><span class="dqn">2</span>How I feel before trading</div>${chips('moodBefore')}</div>
+    <div class="dsec"><span>🌙</span> After trading <small>review your day when you are done</small></div>
+    <div class="dq"><div class="dql"><span class="dqn">3</span>Did I follow my plan?</div>${seg('followed',[['Yes','✅ Yes'],['Partly','➖ Partly'],['No','❌ No']])}</div>
+    <div class="dq"><div class="dql"><span class="dqn">4</span>Did I take trades outside my plan / zones?</div>${seg('outside',[['No','No'],['Yes','Yes']])}</div>
+    <div class="dq"><div class="dql"><span class="dqn">5</span>How I feel at the end of the day</div>${chips('moodAfter')}</div>
+    <div class="dq"><div class="dql"><span class="dqn">6</span>Rate my day (discipline, not profit)</div><div class="row" style="gap:4px">${[1,2,3,4,5].map(i=>`<button type="button" class="chip ${n.rating>=i?'on':''}" style="font-size:18px" onclick="dSet('rating',window._day.n.rating===${i}?0:${i},true)">★</button>`).join('')}</div></div>
+    <div class="dq"><div class="dql"><span class="dqn">7</span>✅ What I did well today</div>${ta('good','e.g. Waited for my zone and confirmation. Stopped after 2 trades.')}</div>
+    <div class="dq"><div class="dql"><span class="dqn">8</span>❌ What I did badly today</div>${ta('bad','e.g. Entered before my zone because of FOMO. Moved my stop loss.')}</div>
     ${n.lessons||n.zones?`<div class="note" style="margin-top:6px">Earlier notes: ${esc([n.zones,n.lessons].filter(Boolean).join(' · '))}</div>`:''}
     </div>
-    <div class="dlg-f"><button class="btn" onclick="dlgClose(null)">Cancel</button><button class="btn primary" onclick="saveDay()">Save day</button></div>`,true);
+    <div class="dlg-f"><button class="btn" onclick="dlgClose(null)">Cancel</button><button class="btn primary" onclick="saveDay()">Save day</button></div>`,true);document.querySelector('#dlgRoot .dlg-box')?.classList.add('daydlg');
 }
 async function saveDay(){
   document.activeElement?.blur?.();const {d,n}=window._day;const wk=weekOf(d);const w=weekNote(wk);w.days=w.days||{};
