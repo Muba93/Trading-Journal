@@ -368,7 +368,9 @@ td.num,th.num{text-align:right}
 .dlg-box.wide{width:min(560px,100%)}
 .dlg-h{display:flex;justify-content:space-between;align-items:center;padding:16px 18px 6px}
 .dlg-h h2{margin:0;font-size:17px}
-.dlg-b{padding:8px 18px 14px;overflow-y:auto}
+.dlg-b{padding:8px 18px 14px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;min-height:0}
+.dlg{overscroll-behavior:contain}
+body:has(#dlgRoot .dlg),body:has(.overlay){overflow:hidden} /* page behind a popup doesn't scroll */
 .dlg-f{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
 .pairbtn{width:100%;justify-content:space-between;font-weight:800}
 .plist{display:flex;flex-direction:column;margin-top:10px}
@@ -909,10 +911,11 @@ function renderDayDlg(){
   const chips=(k)=>`<div class="row" style="flex-wrap:wrap;gap:6px">${DAY_MOODS().map(m=>`<button type="button" class="chip ${(n[k]||[]).includes(m)?'on':''}" onclick="dToggle('${k}','${esc(m)}')">${esc(m)}</button>`).join('')}</div>`;
   const seg=(k,opts)=>`<div class="seg" role="group">${opts.map(([v,l])=>`<button type="button" class="${n[k]===v?'on':''}" onclick="dSet('${k}',window._day.n['${k}']==='${v}'?'':'${v}',true)">${l}</button>`).join('')}</div>`;
   const ta=(k,ph)=>`<textarea class="inp" rows="3" placeholder="${ph}" oninput="dSet('${k}',this.value)">${esc(n[k]||'')}</textarea>`;
-  const sc=[document.querySelector('#dlgRoot .dlg')?.scrollTop||0,document.querySelector('#dlgRoot .dlg-box')?.scrollTop||0]; // keep place when a chip redraws
-  setTimeout(()=>{const a=document.querySelector('#dlgRoot .dlg'),b=document.querySelector('#dlgRoot .dlg-box');if(a)a.scrollTop=sc[0];if(b)b.scrollTop=sc[1];});
-  dlgOpen(`<div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2 style="margin:0">📝 ${fmtDay(d)}</h2><div class="note">${trades.length?`${trades.length} trade${trades.length>1?'s':''} · <b class="${cls(p)}">${money(p)}</b> ${fmtPct(pc)}`:'No closed trades on this day'}</div></div><button class="btn sm" onclick="dlgClose(null)">✕</button></div>
-    <div class="sect">Before trading</div>
+  const sc=document.querySelector('#dlgRoot .dlg-b')?.scrollTop||0; // keep place when a chip redraws
+  setTimeout(()=>{const b=document.querySelector('#dlgRoot .dlg-b');if(b)b.scrollTop=sc;});
+  dlgOpen(`<div class="dlg-h" style="align-items:flex-start"><div><h2 style="margin:0">📝 ${fmtDay(d)}</h2><div class="note">${trades.length?`${trades.length} trade${trades.length>1?'s':''} · <b class="${cls(p)}">${money(p)}</b> ${fmtPct(pc)}`:'No closed trades on this day'}</div></div><button class="btn sm" aria-label="Close" onclick="dlgClose(null)">✕</button></div>
+    <div class="dlg-b">
+    <div class="sect" style="margin-top:4px;border-top:0;padding-top:0">Before trading</div>
     <div class="f"><label>Today's plan &amp; bias</label>${ta('plan','e.g. Gold bullish above 4020. Only buy from my zone after confirmation. Max 2 trades.')}</div>
     <div class="f"><label>Zones / levels I marked</label>${ta('zones','e.g. XAUUSD buy zone 4015–4020, sell zone 4075')}</div>
     <div class="f"><label>How I feel before trading</label>${chips('moodBefore')}</div>
@@ -922,7 +925,8 @@ function renderDayDlg(){
     <div class="f"><label>How I feel at the end of the day</label>${chips('moodAfter')}</div>
     <div class="f"><label>Rate my day (discipline, not profit)</label><div class="row" style="gap:4px">${[1,2,3,4,5].map(i=>`<button type="button" class="chip ${n.rating>=i?'on':''}" style="font-size:18px" onclick="dSet('rating',window._day.n.rating===${i}?0:${i},true)">★</button>`).join('')}</div></div>
     <div class="f"><label>Lessons / what I'll do differently</label>${ta('lessons','e.g. I entered before my zone because of FOMO. Next time: set an alert and wait.')}</div>
-    <div class="row" style="justify-content:flex-end;gap:8px;margin-top:12px"><button class="btn" onclick="dlgClose(null)">Cancel</button><button class="btn primary" onclick="saveDay()">Save day</button></div>`,true);
+    </div>
+    <div class="dlg-f"><button class="btn" onclick="dlgClose(null)">Cancel</button><button class="btn primary" onclick="saveDay()">Save day</button></div>`,true);
 }
 async function saveDay(){
   document.activeElement?.blur?.();const {d,n}=window._day;const wk=weekOf(d);const w=weekNote(wk);w.days=w.days||{};
