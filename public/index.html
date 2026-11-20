@@ -897,6 +897,48 @@ function newsFiltered(tab,scope,level){
   return NEWS.events.filter(e=>{const d=ymd(homeDate(e.t));if(tab==='today'?d!==today:(d<wk||d>wkEnd))return false;if(level==='Prop')return propPairsFor(e).length>0;if(!impactOk(e,level))return false;return scope==='all'||ccy.has(e.currency);});
 }
 function setNews(k,v){NEWS[k]=v;try{localStorage.setItem({tab:'tj-news-tab',scope:'tj-news-scope',impact:'tj-news-imp2'}[k],v);}catch(e){}render();setTimeout(()=>jump('sec-news'),20);}
+/* ---------- daily journal: plan before trading, review after (stored inside that week's note) ---------- */
+const DAY_MOODS=()=>[...new Set([...(S.settings.emotions||[]),'Tired','Excited','Overconfident','Bored'])];
+function getDay(d){return S.weeks[weekOf(d)]?.days?.[d]||null;}
+function dayHasNote(n){return !!n&&!!(n.plan||n.zones||n.lessons||n.followed||n.outside||n.rating||(n.moodBefore||[]).length||(n.moodAfter||[]).length);}
+function openDay(d){const ex=getDay(d);window._day={d,n:ex?clean(ex):{date:d,plan:'',zones:'',moodBefore:[],moodAfter:[],followed:'',outside:'',rating:0,lessons:''}};renderDayDlg();}
+function dSet(k,v,re){window._day.n[k]=v;if(re)renderDayDlg();}
+function dToggle(k,v){const a=window._day.n[k]=window._day.n[k]||[];const i=a.indexOf(v);if(i>=0)a.splice(i,1);else a.push(v);renderDayDlg();}
+function renderDayDlg(){
+  const {d,n}=window._day;const trades=enriched().filter(z=>z.r.day===d&&z.r.closed&&z.r.pnl!=null);const p=sumBy(trades,z=>z.r.pnl),pc=sumPct(trades);
+  const chips=(k)=>`<div class="row" style="flex-wrap:wrap;gap:6px">${DAY_MOODS().map(m=>`<button type="button" class="chip ${(n[k]||[]).includes(m)?'on':''}" onclick="dToggle('${k}','${esc(m)}')">${esc(m)}</button>`).join('')}</div>`;
+  const seg=(k,opts)=>`<div class="seg" role="group">${opts.map(([v,l])=>`<button type="button" class="${n[k]===v?'on':''}" onclick="dSet('${k}',window._day.n['${k}']==='${v}'?'':'${v}',true)">${l}</button>`).join('')}</div>`;
+  const ta=(k,ph)=>`<textarea class="inp" rows="3" placeholder="${ph}" oninput="dSet('${k}',this.value)">${esc(n[k]||'')}</textarea>`;
+  const sc=[document.querySelector('#dlgRoot .dlg')?.scrollTop||0,document.querySelector('#dlgRoot .dlg-box')?.scrollTop||0]; // keep place when a chip redraws
+  setTimeout(()=>{const a=document.querySelector('#dlgRoot .dlg'),b=document.querySelector('#dlgRoot .dlg-box');if(a)a.scrollTop=sc[0];if(b)b.scrollTop=sc[1];});
+  dlgOpen(`<div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2 style="margin:0">📝 ${fmtDay(d)}</h2><div class="note">${trades.length?`${trades.length} trade${trades.length>1?'s':''} · <b class="${cls(p)}">${money(p)}</b> ${fmtPct(pc)}`:'No closed trades on this day'}</div></div><button class="btn sm" onclick="dlgClose(null)">✕</button></div>
+    <div class="sect">Before trading</div>
+    <div class="f"><label>Today's plan &amp; bias</label>${ta('plan','e.g. Gold bullish above 4020. Only buy from my zone after confirmation. Max 2 trades.')}</div>
+    <div class="f"><label>Zones / levels I marked</label>${ta('zones','e.g. XAUUSD buy zone 4015–4020, sell zone 4075')}</div>
+    <div class="f"><label>How I feel before trading</label>${chips('moodBefore')}</div>
+    <div class="sect">After trading</div>
+    <div class="f"><label>Did I follow my plan?</label>${seg('followed',[['Yes','✅ Yes'],['Partly','➖ Partly'],['No','❌ No']])}</div>
+    <div class="f"><label>Did I take trades outside my plan / zones?</label>${seg('outside',[['No','No'],['Yes','Yes']])}</div>
+    <div class="f"><label>How I feel at the end of the day</label>${chips('moodAfter')}</div>
+    <div class="f"><label>Rate my day (discipline, not profit)</label><div class="row" style="gap:4px">${[1,2,3,4,5].map(i=>`<button type="button" class="chip ${n.rating>=i?'on':''}" style="font-size:18px" onclick="dSet('rating',window._day.n.rating===${i}?0:${i},true)">★</button>`).join('')}</div></div>
+    <div class="f"><label>Lessons / what I'll do differently</label>${ta('lessons','e.g. I entered before my zone because of FOMO. Next time: set an alert and wait.')}</div>
+    <div class="row" style="justify-content:flex-end;gap:8px;margin-top:12px"><button class="btn" onclick="dlgClose(null)">Cancel</button><button class="btn primary" onclick="saveDay()">Save day</button></div>`,true);
+}
+async function saveDay(){
+  document.activeElement?.blur?.();const {d,n}=window._day;const wk=weekOf(d);const w=weekNote(wk);w.days=w.days||{};
+  n.updatedAt=Date.now();if(dayHasNote(n))w.days[d]=n;else delete w.days[d];w.updatedAt=Date.now();S._ver++;
+  try{if(COL)await COL.doc('w_'+wk).set(clean(w));else lsSave();toast('Day saved');dlgClose(null);render();}catch(e){toast('Not saved: '+(e.message||e.code));}
+}
+function todayCard(){
+  const d=ymd(nowHome());const n=getDay(d);
+  if(!dayHasNote(n))return `<div class="card daycard" style="margin-bottom:16px"><div class="row" style="justify-content:space-between;align-items:center"><div><h2 style="margin:0">📝 Today's plan</h2><div class="note">Write your plan, zones and mood before you trade — then review your day after.</div></div><button class="btn primary" onclick="openDay('${d}')">Plan my day</button></div></div>`;
+  const done=n.followed||n.lessons||n.rating;
+  return `<div class="card daycard" style="margin-bottom:16px"><div class="row" style="justify-content:space-between;align-items:flex-start"><div style="min-width:0;flex:1"><h2 style="margin:0">📝 Today's plan</h2>
+    ${n.plan?`<div style="margin-top:6px;white-space:pre-wrap">${esc(n.plan)}</div>`:''}${n.zones?`<div class="note" style="margin-top:4px;white-space:pre-wrap">🎯 ${esc(n.zones)}</div>`:''}
+    ${(n.moodBefore||[]).length?`<div class="row" style="gap:6px;flex-wrap:wrap;margin-top:8px">${n.moodBefore.map(m=>`<span class="pill Open">${esc(m)}</span>`).join('')}</div>`:''}
+    ${done?`<div class="note" style="margin-top:8px">Review: ${n.followed?`followed plan <b>${esc(n.followed)}</b>`:''}${n.outside==='Yes'?' · <b class="neg">traded outside plan</b>':''}${n.rating?' · '+'★'.repeat(n.rating):''}</div>`:''}</div>
+    <button class="btn ${done?'':'primary'}" onclick="openDay('${d}')">${done?'Edit':'Review my day'}</button></div></div>`;
+}
 function newsSection(){
   const pairs=newsPairs();const list=newsFiltered(NEWS.tab,NEWS.scope,NEWS.impact);const ccy=[...newsCurrencies()];
   const seg=(k,opts)=>`<div class="seg" role="group">${opts.map(([v,l])=>`<button type="button" class="${NEWS[k]===v?'on':''}" onclick="setNews('${k}','${v}')">${l}</button>`).join('')}</div>`;
@@ -981,6 +1023,7 @@ function viewDashboard(){
   return `<div class="topbar"><div><h1>Dashboard</h1><div class="sub">${rangeLabel()} · ${S.filter.platform==='all'?'all platforms':esc(S.settings.platforms.find(p=>p.id===S.filter.platform)?.name||'')}</div></div>${filterBar()}</div>
   <div class="jumpbar">${[['sec-top','Overview'],['sec-news','News'],...(S.settings.platforms.some(p=>p.type==='prop')?[['sec-prop','Prop firm']]:[]),['sec-cal','Calendar'],['sec-week','Weekly notes'],['sec-perf','Performance'],['sec-mgmt','Management']].map(([id,l])=>`<button type="button" class="chip" onclick="jump('${id}')">${l}</button>`).join('')}</div>
   <div id="sec-top">${dashAlerts()}</div>
+  ${todayCard()}
   ${newsSection()}
   <div class="hero">${hero}
     <div class="card"><div class="row" style="justify-content:space-between;margin-bottom:8px"><h2 style="margin:0">${ac&&!ac.noBal?'Account balance':'Equity curve'}</h2><div class="chips">${toggles}</div></div>
@@ -1778,7 +1821,7 @@ function viewCalendar(embed){
   for(let i=0;i<totalCells;i++){
     const d=new Date(Date.UTC(y,m,1-startOff+i));const key=ymd(d);const inM=d.getUTCMonth()===m;const arr=inM?(byDay[key]||[]):[];const p=sumBy(arr,z=>z.r.pnl);const pc=arr.length?sumPct(arr):null;
     if(inM){weekP+=p;weekN+=arr.length;if(pc!=null)weekPc+=pc;}
-    cells+=`<div class="cell ${!inM?'out':''} ${arr.length?(p>0?'w':p<0?'l':''):''} ${key===today?'today':''}"><span class="d">${d.getUTCDate()}</span>${arr.length?`<span class="p ${cls(p)}"><span class="full">${money(p)}</span><span class="short">${moneyShort(p)}</span></span>${pc!=null?`<span class="pc ${cls(pc)}">${fmtPct(pc,pc&&Math.abs(pc)<10?2:1)}</span>`:''}<span class="note"><span class="full">${arr.length} trade${arr.length>1?'s':''}</span><span class="short">${arr.length} tr</span></span>`:''}</div>`;
+    cells+=`<div class="cell ${!inM?'out':''} ${arr.length?(p>0?'w':p<0?'l':''):''} ${key===today?'today':''}" ${inM?`onclick="openDay('${key}')" style="cursor:pointer" title="Open this day's plan & review"`:''}><span class="d">${d.getUTCDate()}${inM&&dayHasNote(getDay(key))?' <span title="Day journal written">📝</span>':''}</span>${arr.length?`<span class="p ${cls(p)}"><span class="full">${money(p)}</span><span class="short">${moneyShort(p)}</span></span>${pc!=null?`<span class="pc ${cls(pc)}">${fmtPct(pc,pc&&Math.abs(pc)<10?2:1)}</span>`:''}<span class="note"><span class="full">${arr.length} trade${arr.length>1?'s':''}</span><span class="short">${arr.length} tr</span></span>`:''}</div>`;
     if(i%7===6){cells+=`<div class="cell wk wkcol"><span class="d">Week ${weeks.length+1}</span>${weekN?`<span class="p ${cls(weekP)}">${money(weekP)}</span><span class="pc ${cls(weekPc)}">${fmtPct(weekPc)}</span><span class="note">${weekN} trade${weekN>1?'s':''}</span>`:'<span class="note" style="margin-top:auto">No trades</span>'}</div>`;weeks.push({p:weekP,n:weekN,pc:weekPc});weekP=0;weekN=0;weekPc=0;}
   }
   const label=first.toLocaleDateString(undefined,{month:'long',year:'numeric',timeZone:'UTC'});
@@ -1835,6 +1878,29 @@ function drawScore(c){
   const cv=$('#c_score');if(!cv)return;const sc=traderScore(c);if(!sc)return;const css=getComputedStyle(document.documentElement);const ac=css.getPropertyValue('--accent').trim(),mu=css.getPropertyValue('--muted').trim(),ln=css.getPropertyValue('--line').trim();
   charts.score=new Chart(cv,{type:'radar',data:{labels:sc.A.map(a=>a.k),datasets:[{label:'Score',data:sc.A.map(a=>Math.round(a.s)),backgroundColor:ac+'40',borderColor:ac,pointBackgroundColor:ac,borderWidth:2}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{r:{min:0,max:100,ticks:{stepSize:20,display:false},grid:{color:ln},angleLines:{color:ln},pointLabels:{color:mu,font:{size:12,weight:'700'}}}}}});
+}
+/* daily journal analysis: how your mood and discipline each day relate to that day's result */
+function daysCard(c){
+  const byDay={};c.forEach(z=>{if(z.r.day)(byDay[z.r.day]=byDay[z.r.day]||[]).push(z);});
+  const dates=Object.values(S.weeks).flatMap(w=>Object.keys(w.days||{})).filter(d=>dayHasNote(getDay(d)));
+  const lo=c.length?c.reduce((a,z)=>z.r.day&&z.r.day<a?z.r.day:a,'9999'):null,hi=c.length?c.reduce((a,z)=>z.r.day&&z.r.day>a?z.r.day:a,''):null;
+  const inRange=dates.filter(d=>byDay[d]||(lo&&d>=lo&&d<=hi)).sort();
+  const days=inRange.map(d=>{const arr=byDay[d]||[];return {d,n:getDay(d),p:sumBy(arr,z=>z.r.pnl),pc:arr.length?sumPct(arr):0,t:arr.length};});
+  if(!days.length)return `<div class="card" style="margin-top:16px"><h2>Your days</h2><div class="note">No day journals in this period yet. Tap <b>Plan my day</b> on the Dashboard (or any day in the calendar) to write your plan and review — after a few days, this shows how your mood and discipline affect your results.</div></div>`;
+  const grp=(label,keyFn)=>{const g={};days.forEach(x=>[].concat(keyFn(x)||[]).forEach(k=>{if(k)(g[k]=g[k]||[]).push(x);}));
+    return Object.entries(g).map(([k,a])=>({label,k,n:a.length,avg:sumBy(a,x=>x.p)/a.length,avgPc:a.some(x=>x.pc==null)?null:sumBy(a,x=>x.pc)/a.length,tot:sumBy(a,x=>x.p),win:a.filter(x=>x.p>0).length/a.length})).sort((a,b)=>b.avg-a.avg);};
+  const G=[['Mood before trading',grp('mood',x=>x.n.moodBefore)],['Followed my plan',grp('plan',x=>x.n.followed)],['Traded outside plan / zones',grp('outside',x=>x.n.outside)],['Mood at end of day',grp('after',x=>x.n.moodAfter)],['Day rating',grp('rating',x=>x.n.rating?'★'.repeat(x.n.rating):null)]];
+  // plain feedback
+  const fb=[];const f=r=>`<b class="${cls(r.avg)}">${money(r.avg)}</b>${r.avgPc!=null?` (${fmtPct(r.avgPc)})`:''} a day over ${r.n} day${r.n>1?'s':''}`;
+  const moods=G[0][1].filter(r=>r.n>=2);if(moods.length>=2){fb.push(`Your best mood for trading is <b>${esc(moods[0].k)}</b>: ${f(moods[0])}.`);const w=moods[moods.length-1];if(w.avg<0)fb.push(`When you feel <b>${esc(w.k)}</b> you lose ${f(w)} — on those days, trade smaller or don't trade.`);}
+  const pl=Object.fromEntries(G[1][1].map(r=>[r.k,r]));if(pl.Yes&&pl.No)fb.push(`Following your plan: ${f(pl.Yes)}. Not following it: ${f(pl.No)}.`);else if(pl.No&&pl.No.avg<0)fb.push(`Days you didn't follow your plan cost you ${f(pl.No)}.`);
+  const ou=Object.fromEntries(G[2][1].map(r=>[r.k,r]));if(ou.Yes)fb.push(`Trading outside your plan/zones: ${f(ou.Yes)}${ou.No?` vs staying inside: ${f(ou.No)}`:''}.`);
+  return `<div class="card" style="margin-top:16px"><h2>Your days</h2><div class="sub" style="margin:-6px 0 12px">From your daily plans &amp; reviews (${days.length} day${days.length>1?'s':''}): how your mood and discipline each day relate to that day's result.</div>
+    ${fb.length?`<div class="alert info" style="margin-bottom:12px;display:block">${fb.map(x=>`<div style="margin:2px 0">• ${x}</div>`).join('')}</div>`:'<div class="note" style="margin-bottom:10px">Keep journaling — feedback appears once you have at least 2 days in a group.</div>'}
+    <div class="tablewrap"><table><thead><tr><th>When…</th><th class="num">Days</th><th class="num">Green days</th><th class="num">Average day</th><th class="num">Total</th></tr></thead><tbody>
+    ${G.filter(([,rows])=>rows.length).map(([title,rows])=>`<tr class="nw-day"><td colspan="5"><b>${title}</b></td></tr>`+rows.map(r=>`<tr style="cursor:default"><td><b>${esc(r.k)}</b></td><td class="num">${r.n}</td><td class="num">${pct(r.win)}</td><td class="num ${cls(r.avg)}"><b>${money(r.avg)}</b><span class="pctsm">${fmtPct(r.avgPc)}</span></td><td class="num ${cls(r.tot)}">${money(r.tot)}</td></tr>`).join('')).join('')}
+    </tbody></table></div>
+    ${days.filter(x=>x.n.lessons).length?`<details style="margin-top:10px"><summary class="note" style="cursor:pointer">Your lessons (${days.filter(x=>x.n.lessons).length})</summary>${days.filter(x=>x.n.lessons).reverse().map(x=>`<div style="margin:8px 0;cursor:pointer" onclick="openDay('${x.d}')"><b>${fmtDay(x.d)}</b> <span class="${cls(x.p)}">${x.t?money(x.p):''}</span><div class="note" style="white-space:pre-wrap">${esc(x.n.lessons)}</div></div>`).join('')}</details>`:''}</div>`;
 }
 /* what each mistake cost: losses on trades with it + profit taken away (e.g. trade cancelled by the prop firm) */
 function mistakeCostCard(c){
@@ -1914,7 +1980,7 @@ function viewInsights(embed){
   <div class="card" style="margin-top:16px"><h2>Performance by pair</h2><div class="tablewrap"><table><thead><tr><th>Pair</th><th class="num">Trades</th><th class="num">Win rate</th><th class="num">Profit factor</th><th class="num">Avg R</th><th class="num">Total P&amp;L</th></tr></thead><tbody>
     ${pairs.map(p=>`<tr><td><b>${esc(p.k)}</b></td><td class="num">${p.n}</td><td class="num">${pct(p.winRate)}</td><td class="num">${pfText(p.pf)}</td><td class="num">${p.avgR!=null?p.avgR.toFixed(2)+'R':'—'}</td><td class="num ${cls(p.pnl)}"><b>${money(p.pnl)}</b></td></tr>`).join('')}
   </tbody></table></div></div>
-  ${mistakeCostCard(c)}${whatWorksCard(c)}
+  ${daysCard(c)}${mistakeCostCard(c)}${whatWorksCard(c)}
   <div class="card" style="margin-top:16px"><div class="row" style="justify-content:space-between"><div><h2 style="margin:0">AI coach</h2><div class="sub">Chat with Claude about your trading. It can see your whole journal — trades, notes, rules and accounts.</div></div>
     <div class="row"><button class="btn" onclick="openCoach()">Open chat</button><button class="btn primary" onclick="openCoach(coachReviewPrompt())">Review this period</button></div></div></div>`;
 }
